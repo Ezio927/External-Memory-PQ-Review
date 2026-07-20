@@ -132,3 +132,70 @@ The final README structure was reviewed against the actual repository layout.
 Descriptions that did not correspond to existing files or the actual single-person workflow were removed or corrected.
 
 The README is intended only as a navigation and status page. Technical claims appearing in the final paper review will still require verification against the original academic sources.
+
+---
+
+## 2026-07-20 — Initial Review Drafting and Source Verification
+
+### Purpose
+
+To assist with drafting and revising the first four sections of the paper review:
+
+1. the problem addressed by the paper;
+2. the importance of the problem;
+3. the external-memory model and basic definitions;
+4. the difficulty of supporting `DecreaseKey`.
+
+### AI Assistance
+
+ChatGPT was used to:
+
+* organize the structure of the first four review sections;
+* explain the relationship among `Insert`, `DecreaseKey`, and `Update`;
+* provide intuitive explanations of the external-memory model;
+* explain the motivation for batching and buffering;
+* discuss why delayed updates can create multiple logical versions of the same key;
+* explain the tradeoff between fast `Update` and slower `ExtractMin`/`Delete`;
+* draft preliminary Markdown text and mathematical expressions;
+* review the draft against the original ESA 2019 paper and identify statements requiring correction.
+
+### Source Verification
+
+After the initial draft was produced, the following parts of the ESA 2019 paper were checked again:
+
+* Abstract;
+* Section 1, Introduction;
+* Section 1.1, Previous Work;
+* Section 1.2, Our Contributions.
+
+The following points were verified directly from the original paper:
+
+1. `Delete(k)` removes all elements with key `k`.
+2. `Update((k,p))` combines `Insert` and `DecreaseKey`.
+3. The external-memory model is parameterized by main-memory size $M$ and block size $B$.
+4. Main-memory computation is considered free in the I/O model.
+5. The definitions of `Scan(x)` and `Sort(x)` were checked.
+6. The stated amortized I/O bound for `Update` was checked.
+7. The higher bounds for `ExtractMin` and `Delete` were checked.
+8. The paper explicitly describes its result as trading suboptimal `ExtractMin` and `Delete` for optimal `Update`.
+9. The dense-graph conditions required for the I/O-optimal SSSP, DFS, and BFS results were checked.
+10. The `DecreaseKey` lower-bound result cited by the paper predates the target paper; an earlier draft incorrectly described it as later research, and this was corrected.
+
+### Corrections Made After Verification
+
+The review draft was revised in several places:
+
+* the exact complexity tradeoff between `Update` and `ExtractMin`/`Delete` was made explicit;
+* the graph-algorithm optimality statement was restricted to the dense-graph conditions stated in the paper;
+* a simplified expression involving $E$ updates and $V$ extractions was explicitly marked as intuition rather than a formal complexity derivation;
+* the relationship between the amortized `Update` cost and `Sort(N)` was stated more carefully;
+* the chronological description of the `DecreaseKey` lower-bound work was corrected;
+* the lower-bound discussion was revised to distinguish theoretical limitations from the authors' design choices.
+
+### Responsibility
+
+The AI-generated draft is treated as a preliminary writing aid rather than an academic source.
+
+Definitions, theorem statements, asymptotic bounds, and claims about previous work are checked against the original paper before being retained in the review.
+
+Further sections involving the x-treap structure and correctness proofs will require separate verification because they are not yet covered by this entry.
