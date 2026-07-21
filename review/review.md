@@ -354,7 +354,7 @@ $$
 
 $$
 \operatorname{Scan}(x)
-======================
+=
 
 O\left(
 \frac{x}{B}
@@ -379,7 +379,7 @@ $$
 
 $$
 \frac{10^6}{10^3}
-=================
+=
 
 10^3.
 $$
@@ -400,7 +400,7 @@ $$
 
 $$
 \operatorname{Sort}(x)
-======================
+=
 
 O\left(
 \frac{x}{B}
@@ -954,7 +954,7 @@ I/O 的 `DeleteMin`。
 
 $$
 \text{Update}
-=============
+=
 
 \text{Insert}+\text{DecreaseKey}
 $$
