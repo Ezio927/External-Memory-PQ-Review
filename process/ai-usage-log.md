@@ -199,3 +199,96 @@ The AI-generated draft is treated as a preliminary writing aid rather than an ac
 Definitions, theorem statements, asymptotic bounds, and claims about previous work are checked against the original paper before being retained in the review.
 
 Further sections involving the x-treap structure and correctness proofs will require separate verification because they are not yet covered by this entry.
+
+---
+
+## 2026-07-21 — Related-Work Research and Contribution Analysis
+
+### Purpose
+
+To collect and organize the academic sources needed for the related-work section, and to answer questions concerning:
+
+* the development of external-memory priority queues before the target paper;
+* the difference between structures that support and do not support `DecreaseKey`;
+* the theoretical lower bound for `DecreaseKey`;
+* contemporary research published around 2019;
+* relevant research published after the target paper;
+* the position and significance of the target paper within this research history;
+* the main technical and theoretical contributions claimed by the target paper.
+
+### AI Assistance
+
+ChatGPT was used to:
+
+* identify original papers relevant to the related-work discussion;
+* locate official publication pages, open-access versions, and downloadable PDFs;
+* distinguish the ESA 2019 conference version from the full arXiv version of the target paper;
+* suggest consistent local filenames for the collected papers;
+* help organize `sources/source-map.md`;
+* explain the role of each collected source in the review;
+* answer questions about the historical relationship among earlier external-memory heaps, priority queues supporting `DecreaseKey`, lower-bound research, contemporary 2019 work, and later research;
+* explain the difference between the target paper and the Jiang–Larsen priority queue;
+* explain why the 2025 optimal-insertion priority queue and Lazy B-Trees should be treated as related later directions rather than direct replacements for the target paper;
+* answer questions about the target paper’s main contributions, including the asymmetric complexity tradeoff, the x-treap, the Buffered Repository Tree, and the graph-algorithm applications;
+* help distinguish claims made explicitly by the papers from broader interpretations of their significance.
+
+### Sources Located or Discussed
+
+The AI-assisted source search covered the following works:
+
+1. Iacono, Jacob, and Tsakalidis — ESA 2019 conference version;
+2. Iacono, Jacob, and Tsakalidis — full arXiv version;
+3. Fadel et al. — *Heaps and Heapsort on Secondary Storage*;
+4. Kumar and Schwabe — *Improved Algorithms and Data Structures for Solving Graph Problems in External Memory*;
+5. Wei and Yi — *Equivalence between Priority Queues and Sorting in External Memory*;
+6. Eenberg, Larsen, and Yu — *DecreaseKeys are Expensive for External Memory Priority Queues*;
+7. Jiang and Larsen — *A Faster External Memory Priority Queue with DecreaseKeys*;
+8. Brodal et al. — *External-Memory Priority Queues with Optimal Insertions*;
+9. Rysgaard and Wild — *Lazy B-Trees*.
+
+The papers and corresponding links were organized in:
+
+`sources/source-map.md`
+
+### Source Verification
+
+The following information was checked using original publication pages, original PDFs, or publicly available author and arXiv versions:
+
+* paper titles and author lists;
+* publication years and venues;
+* whether each work predates, is contemporary with, or follows the target paper;
+* the operation sets supported by the different priority queues;
+* whether a result is deterministic or randomized where relevant;
+* the general form of the reported I/O bounds;
+* the role of the 2017 `DecreaseKey` lower bound;
+* the fact that the later 2025 papers study different operation sets and performance objectives;
+* the target paper’s stated complexity tradeoff between `Update` and `ExtractMin`/`Delete`;
+* the target paper’s use of both the priority queue and the Buffered Repository Tree in its graph-algorithm applications.
+
+### Interpretive Assistance
+
+AI was also used to discuss the following interpretation:
+
+> The target paper should not be described as making every priority-queue operation simultaneously optimal. Its main contribution is to deliberately assign an optimal I/O bound to `Update`, while allowing `ExtractMin` and `Delete` to be more expensive.
+
+This interpretation was checked against the target paper’s own description of its results.
+
+AI also helped explain why this asymmetric design can be useful when the higher-level graph algorithm performs many more update-like operations than extraction operations.
+
+This workload-based explanation is treated as an interpretation of the paper’s design significance, not as a direct quotation or independent theorem from the paper.
+
+### Limitations and Responsibility
+
+The related-work explanations produced with AI assistance are preliminary research aids.
+
+Before a technical claim is retained in the final review, the relevant source must be checked for:
+
+* the exact computational model;
+* assumptions on $M$, $B$, and $N$;
+* randomization assumptions;
+* amortized, expected, or worst-case guarantees;
+* the exact operation set;
+* the precise theorem statement;
+* restrictions on graph density or graph type.
+
+The collected sources have not all been read in full at this stage. Their inclusion in `source-map.md` records their relevance and availability, not the completion of a full technical review.

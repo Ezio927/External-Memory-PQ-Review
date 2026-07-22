@@ -173,3 +173,196 @@ The next major stages are expected to include:
 10. integration of verified material into a unified paper review.
 
 The review will continue to be developed incrementally through separate reading, verification, drafting, and revision stages.
+
+---
+
+## 2026-07-21 — Related-Work Source Collection
+
+### Goal
+
+The goal of this stage was to collect the primary academic sources required to explain:
+
+* the development of external-memory priority queues;
+* the difficulty of supporting `DecreaseKey`;
+* the research position of the target paper;
+* contemporary and later related work.
+
+### Work Completed
+
+Collected and organized original or publicly available versions of papers covering:
+
+* external-memory heaps without `DecreaseKey`;
+* early external-memory data structures supporting graph operations and `DecreaseKey`;
+* the relationship between external-memory priority queues and sorting;
+* lower bounds for priority queues supporting `DecreaseKey`;
+* contemporary 2019 improvements;
+* later work on optimal insertion;
+* later work on lazy external-memory data structures.
+
+The two versions of the target paper were renamed consistently:
+
+* `Iacono-Jacob-Tsakalidis-2019-External-Memory-PQ-ESA.pdf`
+* `Iacono-Jacob-Tsakalidis-2019-External-Memory-PQ-Full-Version.pdf`
+
+The remaining related-work papers were also stored under descriptive filenames in `sources/`.
+
+### Source Map Revision
+
+Expanded:
+
+`sources/source-map.md`
+
+For each paper, the source map now records:
+
+* full title;
+* authors;
+* publication venue and year;
+* local filename;
+* official publication or metadata page;
+* downloadable PDF or arXiv page where available;
+* the reason the paper is relevant to the review;
+* the review sections that the source may support;
+* differences between the source and the target paper.
+
+The source map is intended to function as a research guide rather than only a bibliography.
+
+### Corresponding Commit
+
+`sources: organize related-work papers and update source map`
+
+---
+
+## 2026-07-21 — Related-Work Analysis
+
+### Reading and Analysis Scope
+
+This stage examined the broad research development surrounding the target paper:
+
+1. efficient external-memory priority queues without `DecreaseKey`;
+2. earlier structures that support `DecreaseKey` at a higher I/O cost;
+3. theoretical lower bounds demonstrating that `DecreaseKey` introduces additional difficulty;
+4. contemporary work published around 2019;
+5. later research exploring other forms of asymmetric operation complexity.
+
+### Work Completed
+
+Added Section 5, **Related Work**, to:
+
+`review/review.md`
+
+The section currently discusses:
+
+* Fadel et al. and the development of external-memory heaps;
+* Kumar and Schwabe’s early external-memory graph data structures;
+* Wei and Yi’s relationship between priority queues and sorting;
+* the 2017 lower bound for `DecreaseKey`;
+* Jiang and Larsen’s contemporary randomized priority queue;
+* the 2025 priority queue with optimal insertions;
+* Lazy B-Trees as a later related direction;
+* the overall historical transition from symmetric operation goals toward asymmetric complexity tradeoffs.
+
+### Main Understanding Formed
+
+The current interpretation is that external-memory priority-queue research developed along two initially separate directions:
+
+* structures with sorting-type I/O efficiency but without efficient `DecreaseKey`;
+* structures supporting `DecreaseKey` but with weaker bounds.
+
+The 2017 lower-bound result showed that the difficulty associated with `DecreaseKey` has a theoretical basis.
+
+The target paper can therefore be understood as choosing a new allocation of unavoidable costs rather than eliminating them completely.
+
+### Corresponding Commit
+
+`docs: add related work and research timeline`
+
+---
+
+## 2026-07-21 — Analysis of the Target Paper’s Main Contributions
+
+### Work Completed
+
+Added Section 6, **Main Contributions**, to:
+
+`review/review.md`
+
+The section currently identifies four main contributions:
+
+1. a new asymmetric external-memory priority-queue tradeoff;
+2. the x-treap data structure;
+3. a new Buffered Repository Tree;
+4. improved external-memory SSSP, DFS, and BFS results for the graph conditions specified by the paper.
+
+### Main Interpretation
+
+The most important conceptual contribution is currently summarized as follows:
+
+> The paper does not attempt to make every operation simultaneously optimal. Instead, it makes `Update` I/O-optimal and transfers more of the unavoidable cost to `ExtractMin` and `Delete`.
+
+This interpretation helps connect the data-structure result to the intended graph-algorithm workload, where update-related operations may occur substantially more often than extraction operations.
+
+### Scope Distinctions Recorded
+
+The review distinguishes the target paper from later or contemporary work by checking:
+
+* supported operation sets;
+* deterministic versus randomized guarantees;
+* the type of asymmetry being optimized;
+* whether `DecreaseKey` is included;
+* whether a later result is a direct improvement or only a related direction.
+
+In particular:
+
+* Jiang–Larsen is treated as a contemporary alternative approach;
+* the 2025 optimal-insertion result is not treated as a replacement because it studies a different operation set;
+* Lazy B-Trees is treated as a later related direction with different structural goals and tradeoffs.
+
+### Corresponding Commit
+
+`docs: analyze main contributions and complexity tradeoffs`
+
+---
+
+## Current Project Status
+
+The project has now completed the following major stages:
+
+1. repository initialization;
+2. collection of the target paper;
+3. first-round problem-background reading;
+4. creation of the unified review structure;
+5. drafting and verification of the problem, motivation, model, and `DecreaseKey` difficulty sections;
+6. collection and organization of primary related-work sources;
+7. construction of a related-work timeline;
+8. preliminary analysis of the target paper’s main contributions.
+
+### Current Review Coverage
+
+The unified review currently contains:
+
+* the problem addressed by the paper;
+* the importance of the problem;
+* the external-memory model;
+* the difficulty of `DecreaseKey`;
+* earlier, contemporary, and later related work;
+* the main contributions and operation-complexity tradeoff.
+
+### Next Stage
+
+The next stage will focus on the technical core of the paper:
+
+* the intuition behind the x-treap;
+* why the structure uses multiple buffer levels;
+* the roles of front and rear buffers;
+* recursive subtreaps;
+* the invariants maintained by the structure.
+
+Before writing detailed operation and proof sections, the x-treap will first be reconstructed conceptually from the full paper version.
+
+The intended order is:
+
+1. technical reading notes;
+2. a simplified structural example;
+3. identification of invariants;
+4. source verification;
+5. integration into the unified review.
