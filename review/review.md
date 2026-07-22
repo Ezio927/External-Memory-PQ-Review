@@ -267,7 +267,7 @@ $$
 
 这一复杂度与在外存中排序 $E$ 个元素的 I/O 最优复杂度处于相同量级。
 
-**需要强调的是：**这一最优性结论针对论文所规定的稠密图条件，并不是说本文对所有规模和稠密程度的图都得到了相同的最优界
+**需要强调的是：**这一最优性结论针对论文所规定的稠密图条件，并不是说本文对所有规模和稠密程度的图都得到了相同的最优界。
 
 ---
 
@@ -354,9 +354,7 @@ $$
 
 $$
 \operatorname{Scan}(x)
-=
-
-O\left(
+= O\left(
 \frac{x}{B}
 \right).
 $$
@@ -379,9 +377,7 @@ $$
 
 $$
 \frac{10^6}{10^3}
-=
-
-10^3.
+= 10^3.
 $$
 
 也就是说，只需要大约 1000 次块传输，而不是对 100 万个元素分别执行 100 万次独立 I/O。
@@ -400,9 +396,7 @@ $$
 
 $$
 \operatorname{Sort}(x)
-=
-
-O\left(
+= O\left(
 \frac{x}{B}
 \log_{M/B}
 \frac{x}{B}
@@ -724,8 +718,7 @@ $$
 
 $$
 \operatorname{Update}
-=
-O\left(
+= O\left(
 \frac{1}{B}
 \log_{M/B}
 \frac{N}{B}
@@ -754,7 +747,6 @@ $$
 > 设计一种优先队列，使频繁发生的 `Update` 操作达到 I/O 最优，并把
 > 必须承担的额外代价转移到 `ExtractMin` 和 `Delete`，从而改善目标
 > 图算法的整体 I/O 复杂度。**
->
 
 ---
 
@@ -954,9 +946,7 @@ I/O 的 `DeleteMin`。
 
 $$
 \text{Update}
-=
-
-\text{Insert}+\text{DecreaseKey}
+= \text{Insert}+\text{DecreaseKey}
 $$
 
 的高效支持；
@@ -1434,6 +1424,10 @@ $$
 
 论文的高层解释正是通过这种“先向下、再转入 front、再向上”的元素生命周期解释其摊还复杂度设计。
 
+需要强调的是，上述过程只是一个典型的高层直觉。
+
+实际算法中，元素不一定严格地“只向下一次，然后只向上一次”。论文明确指出，元素可能在不同操作作用下多次向上或向下移动。后面的摊还分析需要通过势能函数来控制这些重复移动产生的总成本。
+
 ---
 
 ## 7.6 为什么相同 key 的多个版本不会立即被删除
@@ -1500,26 +1494,38 @@ $$
 (A,3).
 $$
 
-论文把 x-treap 当前逻辑代表的集合记作：
+论文把 x-treap 当前逻辑代表的集合记作 $D.rep$。可以把它写成：
 
 $$
-D.rep=
-\bigcup_{k:\exists p,(k,p)\in D}
-\left{
+D.\mathrm{rep}
+= \left\{
 \left(
 k,
-\min{p:(k,p)\in D}
+\min\{p\mid (k,p)\in D\}
 \right)
-\right}.
+\;\middle|\;
+\exists p,\ (k,p)\in D
+\right\}.
 $$
 
-因此，x-treap 本质上允许：
+这里还需要注意一个重要限制。
 
-> **物理结构暂时有冗余，但逻辑语义保持唯一。**
+论文的 representation scheme 假设：一个已经不再被结构表示的 key，
+之后不能重新变成 represented。特别地，一个已经被 `ExtractMin`
+返回的 key 不能再次被插入。
 
-这正是延迟处理 `DecreaseKey` 的关键。
+这个限制很重要，因为 `ExtractMin` 后，结构内部仍可能残留同一 key
+的旧物理副本。这些副本在后文被称为 ghosts。它们不能因为较新的
+representative 已被取走，就重新成为该 key 的有效逻辑状态。
 
-如果不能接受这种物理冗余，就必须在每次更新时马上找到旧版本，而那正是外存算法希望避免的随机访问。论文将 minimum-priority copy 定义为该 key 的 representative element。
+因此，x-treap 中必须区分：
+
+* 物理上仍然存储的元素；
+* 当前仍然 represented 的逻辑元素；
+* 已经失效但尚未从物理结构中完全清除的 ghost。
+
+完整优先队列在后面还会利用哈希表记录已经被 `ExtractMin` 或
+`Delete` 的 key，以避免这些 ghost 被错误地再次返回。
 
 ---
 
@@ -1713,9 +1719,7 @@ $$
 (D.x)^{1/2}
 \cdot
 (D.x)^{\frac{1+\alpha}{2}}
-==========================
-
-(D.x)^{1+\frac{\alpha}{2}},
+= (D.x)^{1+\frac{\alpha}{2}},
 $$
 
 与 middle buffer 的尺度相匹配。
@@ -1726,9 +1730,7 @@ $$
 (D.x)^{\frac{1+\alpha}{2}}
 \cdot
 (D.x)^{\frac{1+\alpha}{2}}
-==========================
-
-(D.x)^{1+\alpha},
+= (D.x)^{1+\alpha},
 $$
 
 与 bottom buffer 的尺度相匹配。
@@ -1816,7 +1818,7 @@ $$
 
 ---
 
-# 8.6 五个核心 Invariant
+## 8.6 五个核心 Invariant
 
 x-treap 的正确性主要由五个结构不变量保证。
 
@@ -1922,21 +1924,15 @@ $$
 
 $$
 b.k_{\min}
-==========
-
-D_1.k_{\min}
+= D_1.k_{\min}
 <
 D_1.k_{\max}
-============
-
-D_2.k_{\min}
+= D_2.k_{\min}
 <
 \cdots
 <
 D_r.k_{\max}
-============
-
-b.k_{\max}.
+= b.k_{\max}.
 $$
 
 因此，一旦知道某个元素的 key，就能够确定它属于哪个 subtreap 的 key range。
@@ -2034,13 +2030,13 @@ $$
 O(\lambda).
 $$
 
-在 cache-aware 情况下，作者取：
+在 cache-aware 情况下，论文可以设置：
 
 $$
-\lambda=\Theta(M),
+\lambda=O(M),
 $$
 
-于是整个 base case 可以落在主存规模附近。
+从而使 base case 的规模与可在主存中高效处理的数据规模相匹配。
 
 这时就没有必要继续维持复杂的递归 buffer 结构，可以使用简单数组进行处理。
 
