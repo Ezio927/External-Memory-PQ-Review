@@ -2095,3 +2095,545 @@ $$
 > **当某个 buffer 太满、太空或者 front/rear 顺序被破坏时，怎样只通过大规模批处理重新恢复这五个 invariant，而不是逐个元素进行随机访问。**
 
 这正是下一节分析 `Resolve`、`Flush-Up`、`Flush-Down` 等具体操作时的主线。
+
+---
+
+# 9. x-treap 的核心操作
+
+x-treap 对外主要需要支持批量插入和批量提取最小元素。为了实现这些接口，论文设计了多个辅助操作，其中最核心的是：
+
+* `Resolve`：整理单个 buffer，消除重复 key，并恢复 front/rear 的 priority 关系；
+* `Flush-Up`：当上层 front 不足时，将较小 priority 的元素批量向上移动；
+* `Flush-Down`：当结构过满时，将较大 priority 的元素从 bottom 批量向下移出。
+
+这三个操作分别处理局部整理、向上补充和向下释放空间，是理解后续 `Batched-Insert` 和 `Batched-ExtractMin` 的基础。
+
+---
+
+## 9.1 `Resolve`：消除重复版本并恢复 front/rear
+
+`DecreaseKey` 的延迟处理会使同一个 key 的多个版本暂时共存。
+
+例如，一个 buffer 中可能出现：
+
+$$
+(A,10),(A,6),(A,3).
+$$
+
+逻辑上真正应该保留的是最低 priority：
+
+$$
+(A,3).
+$$
+
+`Resolve(D,b)` 就是用于整理单个 buffer $b$ 的操作。
+
+由于 buffer 的 front 和 rear 都已经按照 key 排序，算法可以通过 2-way merge 将两部分合并，使相同 key 的元素相邻，然后对每个 key 只保留其中 priority 最小的版本。
+
+例如：
+
+```text
+front:
+(A,4) (C,7) (E,9)
+
+rear:
+(A,6) (B,3) (C,5) (D,12)
+```
+
+按 key 合并并去重后得到：
+
+```text
+(A,4) (B,3) (C,5) (D,12) (E,9)
+```
+
+除了消除重复版本，`Resolve` 还需要恢复 front 和 rear 的 priority 分界。
+
+设原 front 中最大的 priority 为：
+
+$$
+p_{\max}.
+$$
+
+去重后：
+
+* priority $\le p_{\max}$ 的元素写回 front；
+* priority $>p_{\max}$ 的元素写入 rear。
+
+因此，操作完成后重新满足：
+
+> front 中所有元素的 priority 小于 rear 中所有元素的 priority。
+
+这恢复了 Invariant 2，同时由于整个过程始终按照 key 顺序扫描和写回，也保持了 Invariant 1。
+
+`Resolve` 的重要意义在于，它把原本可能需要随机查找旧版本的 `DecreaseKey` 处理，转化成了对已排序数组的批量 merge 和 scan。
+
+其 I/O 成本与：
+
+$$
+\operatorname{Scan}(|b|)
+$$
+
+处于相同量级。
+
+需要注意，`Resolve` 只消除**同一个 buffer 内**的重复版本。相同 key 的旧副本仍可能存在于 x-treap 的其他层级，因此整个优先队列还需要额外机制处理前文提到的 ghost。
+
+---
+
+## 9.2 `Flush-Up`：把较小 priority 元素向上补充
+
+当不断执行 `ExtractMin` 时，top front 中的元素会逐渐减少。
+
+如果每次 top front 为空时都重新扫描整个 x-treap 寻找最小元素，就无法利用外存批处理。
+
+因此，x-treap 使用 `Flush-Up` 一次性向上补充一批较小 priority 的元素。
+
+对于一个 buffer $b$，`Flush-Up(D,b)` 的基本过程是：
+
+1. 对当前 buffer 执行 `Resolve`；
+2. 递归整理紧邻其下方 subtreap 的 top front；
+3. 如果当前 front 中元素仍然不足，则从这些 subtreap 暴露出的候选元素中选择 priority 最小的一批；
+4. 如果这些元素仍然不足，再继续从更下方的主 buffer 中寻找；
+5. 将选出的元素按照 key 排序后，与当前 front 合并。
+
+其逻辑可以概括为：
+
+```text
+当前 front 不足
+        ↓
+整理下方 subtreap
+        ↓
+暴露各自最小 priority 候选
+        ↓
+从中选出全局较小的一批
+        ↓
+按 key 排序
+        ↓
+补入当前 front
+```
+
+不同 subtreap 是按照 key range 划分的，但 `Flush-Up` 此时需要按照 priority 比较不同 subtreap 中的候选元素。
+
+因此算法使用一个临时优先队列，对不同 subtreap 暴露出的元素进行 priority 比较。
+
+如果某个 subtreap 的 top front 被取空，则递归执行：
+
+$$
+\operatorname{Flush\text{-}Up}
+$$
+
+从该 subtreap 更深的位置继续补充候选元素。
+
+所以 `Flush-Up` 并不是扫描整个子结构，而是让每个 recursive subtreap 逐步暴露自己当前最小的一批元素。
+
+在整个 x-treap 的顶层，`Flush-Up` 的目标是使 top front 获得至少约：
+
+$$
+\frac14D.x
+$$
+
+个最小 priority 的代表元素，除非整个结构中已经没有这么多元素。
+
+这样，一次相对昂贵的 `Flush-Up` 可以为之后的一批 `ExtractMin` 提前准备好候选元素，而不是每次提取都重新执行全局搜索。
+
+---
+
+## 9.3 `Flush-Down`：把较大 priority 元素向下移出
+
+`Flush-Down` 与 `Flush-Up` 的方向相反。
+
+当大量更新不断向结构中加入元素时，x-treap 的 bottom buffer 最终会变得过满。
+
+此时需要从当前 x-treap 中移出一批元素，为后续插入释放空间。
+
+根据 priority invariant：
+
+* bottom 位于整个结构较低的位置；
+* bottom rear 的 priority 又高于 bottom front。
+
+因此，应该优先移走 bottom 中 priority 较大的元素。
+
+设 bottom buffer 的容量为：
+
+$$
+C=(D.x)^{1+\alpha}.
+$$
+
+`Flush-Down` 首先将 bottom rear 中的所有元素移动到临时数组。
+
+如果这已经移出了足够多元素，则操作可以结束。
+
+如果 rear 中元素不足，则继续从 bottom front 中选择 priority 较大的部分移出。
+
+算法通过 external-memory order statistics 找到相应的 priority 分界，使操作完成后 bottom front 最多保留约：
+
+$$
+\frac13C
+$$
+
+个较小 priority 元素。
+
+因此，`Flush-Down` 的过程可以概括为：
+
+```text
+bottom 过满
+      ↓
+先清空 bottom rear
+      ↓
+数量是否足够？
+   ┌──┴──┐
+   │     │
+  是     否
+   │     │
+   │   从 bottom front
+   │   继续选大 priority
+   │
+   └──┬──┘
+      ↓
+合并被移出的元素
+      ↓
+返回 key-sorted batch
+```
+
+一次 `Flush-Down` 至少会移出一个常数比例的元素，约不少于：
+
+$$
+\frac16C,
+$$
+
+同时返回的元素数量不会超过：
+
+$$
+\frac23C.
+$$
+
+这保证了每次执行较昂贵的下推操作时，都有足够多元素共同分摊其 I/O 成本。
+
+被移出的元素最终仍需要按照 key 排序，因为后续的批量插入操作依赖 key-sorted input。
+
+由于 bottom front 和 rear 本身已经分别按照 key 排序，所以最后只需要对两个临时数组执行 2-way merge，而不需要重新进行一次完整排序。
+
+---
+
+## 9.4 三个核心操作之间的关系
+
+现在可以把 `Resolve`、`Flush-Up` 和 `Flush-Down` 的作用放在一起理解。
+
+### `Resolve`
+
+处理的是：
+
+> **单个 buffer 内部的局部一致性。**
+
+主要完成：
+
+```text
+重复 key 消解
++
+恢复 front/rear priority 分界
+```
+
+### `Flush-Up`
+
+处理的是：
+
+> **上层 front 中的最小元素候选不足。**
+
+主要完成：
+
+```text
+选择较小 priority
++
+批量向上移动
+```
+
+它主要服务于后面的：
+
+```text
+Batched-ExtractMin
+```
+
+### `Flush-Down`
+
+处理的是：
+
+> **结构过满，需要释放空间。**
+
+主要完成：
+
+```text
+选择较大 priority
++
+从 bottom 批量向下移出
+```
+
+它主要服务于后面的：
+
+```text
+Batched-Insert
+```
+
+因此，x-treap 中的元素移动可以粗略理解成：
+
+```text
+                 ExtractMin
+                     ↑
+                     │
+                 Flush-Up
+                     │
+              small priority
+                     ↑
+                     │
+
+                  x-treap
+
+                     │
+                     ↓
+              large priority
+                     │
+                Flush-Down
+                     │
+                     ↓
+                   Update
+```
+
+而 `Resolve` 则穿插在这些移动过程中，不断处理同一个 buffer 内的重复 key 和 priority 分界。
+
+这三个操作共同实现了前文描述的核心思想：
+
+> **Update 产生的信息主要通过 rear 和批处理逐渐向下传播，而真正重要的小 priority 元素再通过 front 和 `Flush-Up` 向上移动。**
+
+下一步还需要说明 `Batched-Insert` 和 `Batched-ExtractMin` 如何调用这些辅助操作，从而真正实现 x-treap 对外提供的批量接口。
+
+---
+
+## 9.5 `Initialize` 和 `Split`：维护 recursive subtreap
+
+除了三个主要的 buffer 操作以外，x-treap 还需要处理 recursive subtreap 的创建和拆分。
+
+`Initialize` 用于从一个已经按照 key 排序的 batch 创建新的 subtreap。
+
+它并不是简单地把所有元素放入同一个 buffer，而是根据 priority 将元素分配到 top、middle、bottom 以及递归 subtreap 中，使新结构从建立时就满足 x-treap 的基本 priority 层级。
+
+`Split` 则用于处理已经接近容量上限的 subtreap。
+
+它主要按照 **key** 把原来的 key range 拆开：
+
+```text
+原 subtreap：
+
+[A----------------------Z)
+
+Split 后：
+
+[A---------M)
+           [M-----------Z)
+```
+
+较大 key 的一部分元素被移入临时数组，然后可以通过 `Initialize` 构造新的 subtreap。
+
+因此两者通常配合使用：
+
+```text
+subtreap 过满
+      ↓
+    Split
+      ↓
+按 key 拆成两部分
+      ↓
+ Initialize
+      ↓
+建立新的 subtreap
+```
+
+这里可以再次看到 key 和 priority 的分工：
+
+* `Split` 主要按照 key 调整递归分区；
+* `Initialize` 还需要根据 priority 恢复新 subtreap 内部的上下层关系。
+
+---
+
+## 9.6 `Batched-Insert`：把更新批量向下传播
+
+`Batched-Insert` 是 x-treap 真正的批量插入接口。
+
+输入是一批已经按照 key 排序的元素。
+
+算法首先把新的 batch 与当前 buffer 的 rear 按 key 合并，并调用 `Resolve`：
+
+```text
+new batch
+   +
+old rear
+   ↓
+2-way merge
+   ↓
+Resolve
+```
+
+这样可以在不随机寻找旧元素的情况下，批量处理相同 key 的不同版本。
+
+随后，算法按照下方各 subtreap 的 key range 检查当前层积累的元素。
+
+对于某个 key range，如果元素过多，就选择其中 priority 较大的部分继续向下移动。
+
+因此：
+
+```text
+key
+ ↓
+决定进入哪个 subtreap
+
+priority
+ ↓
+决定哪些元素继续下移
+```
+
+如果目标 subtreap 仍有容量，就递归执行 `Batched-Insert`。
+
+如果目标 subtreap 已满，但当前层还能够增加新的 subtreap，则执行：
+
+```text
+Split
+  ↓
+Initialize
+```
+
+把原 key range 拆开。
+
+如果整个 recursive level 都已经达到容量上限，则调用 `Flush-Down`，将各 subtreap 中较大的 priority 元素批量移出，并把它们继续插入更下方的主 buffer。
+
+因此，`Batched-Insert` 的整体逻辑可以概括为：
+
+```text
+新更新
+   ↓
+进入 rear
+   ↓
+Resolve
+   ↓
+按 key range 分组
+   ↓
+large priority 向下
+   ↓
+subtreap 有空间？
+   │
+ ┌─┴───────┐
+ │         │
+有         无
+ │         │
+递归    Split / Initialize
+插入       │
+           │ 若整个 level 已满
+           ↓
+       Flush-Down
+           ↓
+       下一主 buffer
+```
+
+这一设计使 `DecreaseKey` 不需要立即在外存中定位并修改旧元素。
+
+新的 `(key,priority)` 可以先作为更新进入 buffer，之后在批量 merge 和 `Resolve` 的过程中逐渐与旧版本相遇。
+
+这正是本文降低 `Update` I/O 成本的关键思想。
+
+---
+
+## 9.7 `Batched-ExtractMin`：从 top front 批量提取最小元素
+
+与 `Batched-Insert` 相比，`Batched-ExtractMin` 的接口逻辑简单得多。
+
+根据 x-treap 的 priority invariants，top front 中保存的是当前最接近全局 minimum 的 representative elements。
+
+因此算法首先检查 top front。
+
+如果其中元素不足约：
+
+$$
+\frac14D.x,
+$$
+
+则执行：
+
+$$
+\operatorname{Flush\text{-}Up}(D),
+$$
+
+从更深层递归结构中向上补充一批较小 priority 元素。
+
+之后即可直接从 top front 删除并返回这一批最小元素，并更新结构的 counter。
+
+流程可以表示为：
+
+```text
+top front 足够？
+   │
+ ┌─┴─┐
+ │   │
+是   否
+ │   │
+ │ Flush-Up
+ │   │
+ └─┬─┘
+   ↓
+从 top front
+批量返回 minimum
+```
+
+因此，x-treap 并不是每执行一次 `ExtractMin` 就搜索整个结构，而是通过一次 `Flush-Up` 提前准备一批 minimum candidates，再进行批量提取。
+
+---
+
+## 9.8 x-treap 操作的整体关系
+
+至此，可以把 x-treap 的主要操作分成三类。
+
+### 局部整理
+
+`Resolve`：
+
+> 消除一个 buffer 内相同 key 的多个版本，并恢复 front/rear 的 priority 关系。
+
+### 跨层移动
+
+`Flush-Up`：
+
+> 将较小 priority 元素向上移动，为提取最小元素做准备。
+
+`Flush-Down`：
+
+> 将较大 priority 元素向下移动，为新的更新释放空间。
+
+### 递归结构维护
+
+`Split` 和 `Initialize`：
+
+> 按 key 拆分和创建 recursive subtreap。
+
+这些辅助操作最终由两个接口串联起来：
+
+```text
+Update
+   ↓
+Batched-Insert
+   ↓
+Resolve / Split / Initialize / Flush-Down
+   ↓
+更新主要向下传播
+
+
+ExtractMin
+   ↓
+Batched-ExtractMin
+   ↓
+Flush-Up
+   ↓
+小 priority 元素向上补充
+```
+
+因此，本文的非对称复杂度设计已经直接体现在 x-treap 的数据流中：
+
+> **更新主要通过 buffer、merge 和批量下移处理，而提取最小元素需要执行更昂贵的向上恢复过程。**
+
+这解释了为什么最终可以优先降低 `Update` 的 I/O 成本，同时允许 `ExtractMin` 承担更高的代价。
+
+到这里，x-treap 的主要结构和操作已经完整。下一步需要分别讨论这些操作的**正确性**以及它们的**摊还 I/O 复杂度**。
