@@ -292,3 +292,91 @@ Before a technical claim is retained in the final review, the relevant source mu
 * restrictions on graph density or graph type.
 
 The collected sources have not all been read in full at this stage. Their inclusion in `source-map.md` records their relevance and availability, not the completion of a full technical review.
+
+---
+
+## 2026-07-22 — x-treap Structure and Operations Study
+
+### Study Focus
+
+This stage focused on understanding the technical core of the paper rather than only recording its final complexity results.
+
+The main questions investigated during reading were:
+
+* why the x-treap uses a recursive layout instead of a conventional sequence of exponentially growing buffers;
+* how key order and priority order are represented simultaneously;
+* why every main buffer is divided into front and rear parts;
+* how recursive subtreaps divide the key space;
+* what role each of the five structural invariants plays;
+* how delayed `DecreaseKey` operations can coexist with multiple physical copies of the same key;
+* how representative elements and ghost elements should be distinguished;
+* how elements move upward or downward while the structure maintains its logical priority-queue semantics.
+
+The study then continued from the static structure to the dynamic operations:
+
+* `Resolve`;
+* `Flush-Up`;
+* `Flush-Down`;
+* `Initialize`;
+* `Split`;
+* `Batched-Insert`;
+* `Batched-ExtractMin`.
+
+The goal was to connect each operation to a specific structural problem rather than treating the pseudocode as an isolated sequence of steps.
+
+### AI Assistance
+
+ChatGPT was used as an interactive aid while working through these questions.
+
+The main uses included:
+
+* discussing alternative interpretations of the x-treap layout and checking which interpretation was consistent with the paper;
+* explaining the distinction between the key dimension and the priority dimension;
+* constructing small examples to test understanding of front/rear buffers and duplicate keys;
+* answering questions about why individual invariants are necessary;
+* explaining how `Resolve`, `Flush-Up`, and `Flush-Down` interact with those invariants;
+* helping trace the movement of an element through the recursive structure;
+* discussing the purpose of constants and thresholds appearing in the operations, such as the fractions used by `Flush-Up` and `Flush-Down`;
+* relating `Split` and `Initialize` to the maintenance of key ranges;
+* connecting the internal auxiliary operations to the two batched interfaces;
+* helping reorganize the resulting understanding into coherent technical explanations for the review.
+
+The interaction was mainly organized around specific questions arising from the paper, with the full version of the paper used to check the resulting interpretation.
+
+### Technical Verification
+
+The full version of the target paper was used to verify the main structural and algorithmic details discussed during this stage.
+
+Items checked included:
+
+* the capacities of the top, middle, and bottom buffers;
+* the scale of recursive $\sqrt{x}$-treaps;
+* the maximum numbers of upper- and lower-level subtreaps;
+* the five x-treap invariants;
+* the base-case condition involving $\lambda$;
+* the distinction between representative elements and physical copies;
+* the role of ghost elements;
+* the behavior of `Resolve`;
+* the recursive structure of `Flush-Up`;
+* the $1/6$, $1/3$, and $2/3$ thresholds appearing in `Flush-Down`;
+* the roles of `Initialize` and `Split`;
+* the main control flow of `Batched-Insert`;
+* the use of `Flush-Up` by `Batched-ExtractMin`.
+
+Several explanations were revised after comparison with the original paper. In particular, high-level intuition such as “elements move downward and later upward” was kept separate from stronger claims about the exact path of an individual element.
+
+### Review and Formatting Check
+
+The complete `review.md` was also checked during this stage for technical and Markdown issues.
+
+This included:
+
+* checking displayed mathematical expressions for KaTeX/Markdown syntax problems;
+* correcting several formulas whose line breaks caused rendering problems;
+* correcting the representation of $D.\mathrm{rep}$;
+* checking heading levels;
+* revising the description of representative and ghost elements;
+* correcting the cache-aware base-case discussion involving $\lambda$;
+* checking terminology and notation for consistency across the earlier and newly added sections.
+
+The corrections were incorporated into the working review before continuing to the operation analysis.

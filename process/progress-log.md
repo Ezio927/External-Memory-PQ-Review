@@ -366,3 +366,209 @@ The intended order is:
 3. identification of invariants;
 4. source verification;
 5. integration into the unified review.
+
+---
+
+## 2026-07-22 — x-treap Structure Analysis
+
+### Goal
+
+The goal of this stage was to move from the high-level contribution of the paper to the concrete data structure that realizes the claimed priority-queue tradeoff.
+
+The main questions were:
+
+* what an x-treap physically contains;
+* how recursive subtreaps are organized;
+* how key and priority information are represented;
+* which properties must remain true after operations;
+* how delayed updates can preserve the logical priority-queue state.
+
+### Branch and Repository History
+
+Work continued on:
+
+`review/x-treap-structure`
+
+During this stage, it was discovered that the previous related-work branch had not yet been merged into `main`.
+
+The repository history was corrected by first merging:
+
+`review/related-work-and-contributions`
+
+into `main`, and then synchronizing the x-treap branch with the updated `main`.
+
+This ensured that Sections 5 and 6 and the corresponding source/process records were present before the x-treap material was added.
+
+### Section 7 — x-treap Intuition
+
+Added an explanation of the main ideas behind the x-treap, including:
+
+* recursive buffering;
+* the relation to the x-box intuition;
+* the use of key and priority as two different organizational dimensions;
+* the different roles of front and rear buffers;
+* the typical movement of updates through the structure;
+* delayed removal of duplicate key versions;
+* representative elements and ghost elements.
+
+The main understanding developed in this stage is that x-treap does not immediately locate and modify an old element after every update.
+
+Instead, updates may remain physically distributed through the structure while later batch operations restore the required logical relationships.
+
+---
+
+## 2026-07-22 — x-treap Concrete Structure and Invariants
+
+### Work Completed
+
+Added the concrete x-treap organization, including:
+
+* top, middle, and bottom buffers;
+* front/rear subdivision;
+* upper- and lower-level recursive subtreaps;
+* the $\sqrt{x}$ recursive scale;
+* buffer capacity relationships;
+* key-range partitioning;
+* the base case.
+
+The five structural invariants were also recorded and interpreted.
+
+### Main Understanding
+
+The invariants can be divided conceptually into two roles.
+
+Key-related properties support efficient batch processing:
+
+* buffers remain sorted by key;
+* recursive subtreaps partition continuous key ranges.
+
+Priority-related properties support extraction of minimum elements:
+
+* front elements precede rear elements in priority;
+* elements exposed in higher front buffers have smaller priority than elements stored below them.
+
+The remaining structural condition keeps the recursive levels consistent when lower buffers contain data.
+
+### Verification and Corrections
+
+A full pass over `review.md` was performed after the first x-treap structure draft.
+
+Corrections included:
+
+* mathematical-expression formatting;
+* heading hierarchy;
+* the formal representation of $D.\mathrm{rep}$;
+* the explanation of ghosts;
+* the base-case parameter $\lambda$;
+* several distinctions between intuitive descriptions and formal structural properties.
+
+---
+
+## 2026-07-22 — x-treap Operations
+
+### Goal
+
+After establishing the static structure, the next stage focused on how the x-treap restores and maintains its invariants during updates and extractions.
+
+### `Resolve`
+
+Studied `Resolve` as the basic local cleanup operation.
+
+The main functions identified were:
+
+* merge front and rear by key;
+* remove duplicate versions of a key while retaining the minimum priority;
+* restore the priority boundary between front and rear.
+
+This explains how delayed `DecreaseKey` operations can eventually be reconciled using sequential scans rather than individual random searches.
+
+### `Flush-Up`
+
+Studied how minimum-priority candidates are restored when an upper front buffer becomes too small.
+
+The analysis followed:
+
+* recursive preparation of lower subtreaps;
+* exposure of their smallest-priority candidates;
+* comparison of candidates across multiple key ranges;
+* movement of a batch of small-priority elements upward;
+* restoration of the recursive structure when necessary.
+
+This operation provides the main connection between the recursive layout and later `ExtractMin` operations.
+
+### `Flush-Down`
+
+Studied how the structure releases capacity after many updates have accumulated.
+
+The analysis included:
+
+* removing bottom rear elements first;
+* selecting large-priority elements from bottom front when necessary;
+* the $1/6$, $1/3$, and $2/3$ capacity thresholds;
+* returning the removed elements as a key-sorted batch.
+
+This operation explains how large-priority elements continue moving downward without requiring individual random I/O operations.
+
+### `Initialize` and `Split`
+
+Studied the operations used to maintain the recursive key partition.
+
+`Initialize` constructs a recursive subtreap from a batch of elements.
+
+`Split` divides an overfull subtreap according to key range so that a new recursive subtreap can be created.
+
+Together they allow the recursive level to expand as more key ranges become populated.
+
+### Batched Interfaces
+
+Completed the first-pass analysis of the two main x-treap interfaces.
+
+`Batched-Insert` combines:
+
+* key-sorted merge;
+* `Resolve`;
+* recursive insertion;
+* `Split`;
+* `Initialize`;
+* `Flush-Down`.
+
+Its main effect is to allow update information to propagate downward in batches.
+
+`Batched-ExtractMin` uses the priority invariants and `Flush-Up` to ensure that a batch of minimum-priority representative elements is available in the top front buffer before extraction.
+
+### Current Understanding
+
+The operations now form a coherent data flow:
+
+```text id="xk5fue"
+Update
+  ↓
+Batched-Insert
+  ↓
+Resolve / Split / Initialize / Flush-Down
+  ↓
+updates propagate downward
+
+
+small-priority elements
+  ↑
+Flush-Up
+  ↑
+Batched-ExtractMin
+  ↑
+ExtractMin
+```
+
+At this stage, the structure and principal operations of the x-treap have been covered.
+
+### Next Stage
+
+The next stage is correctness analysis.
+
+The planned questions are:
+
+1. why duplicate physical copies do not change the logical represented element;
+2. why the structural invariants are restored after the main operations;
+3. why the elements returned through the top front are valid minimum representative elements.
+
+After correctness, the project will move to the amortized I/O complexity analysis.
