@@ -1164,3 +1164,938 @@ $$
 因此，本文的创新不仅是一个具体数据结构，还包括一种重要的算法设计观点：
 
 > **数据结构的最优性不一定意味着每一种操作单独都最优；真正重要的是数据结构的操作复杂度组合是否与上层算法的 workload 相匹配。**
+
+---
+
+# 7. x-treap 的核心直觉
+
+## 7.1 x-treap 为什么要设计得这么复杂
+
+如果只考虑普通的外存优先队列，一个很自然的做法是建立若干大小逐渐增加的 buffer。
+
+新的 `Update` 先进入较小的 buffer；当 buffer 满时，再把一批元素向更大的 buffer 移动。这样可以通过顺序扫描和批处理，把一次 I/O 的成本分摊到许多元素上。
+
+已有的 cache-oblivious priority queue 基本采用这种思想：不同层具有逐渐增大的 front buffer 和 rear buffer，更新先进入 rear buffer，再随着溢出逐渐向下移动；当某个元素的优先级适合进入 front buffer 时，它再逐渐向上移动，最终从最上层 front buffer 被 `ExtractMin` 取出。
+
+问题在于，如果每一层的规模只是按照
+
+$$
+1,2,4,8,\ldots
+$$
+
+这样的几何级数增长，那么一个元素在结构中会经过大约
+
+$$
+O\left(
+\log_2\frac{N}{B}
+\right)
+$$
+
+层。
+
+这正是早期支持 `DecreaseKey` 的结构中经常出现 base-2 logarithm 的原因。
+
+本文希望把这一层数降低到与外存排序相似的
+
+$$
+O\left(
+\log_{M/B}\frac{N}{B}
+\right)
+$$
+
+量级，因此不能继续简单使用“每层扩大两倍”的结构。
+
+作者的解决办法是引入一种**递归增长结构**：x-treap。它借鉴了此前 x-box 和外存哈希结构中的递归布局，把许多简单层级压缩进一个递归结构中。
+（Full Version §1.3）
+
+---
+
+## 7.2 从 x-box 到 x-treap
+
+理解 x-treap 的一个比较好的办法，是先暂时忽略优先级，只考虑数据如何在递归结构中移动。
+
+论文首先给出了一个简化的 x-box 直觉。
+
+一个规模参数为 $x$ 的递归结构大致包含：
+
+* top buffer；
+* upper-level recursive structures；
+* middle buffer；
+* lower-level recursive structures；
+* bottom buffer。
+
+在最简单的 $\alpha=1$ 情况下，可以把三个主要 buffer 的规模粗略理解成：
+
+$$
+x,\qquad x^{1.5},\qquad x^2.
+$$
+
+而内部的递归结构自身又是规模大约为 $\sqrt{x}$ 的同类结构。
+
+于是元素不是简单地从：
+
+$$
+2^i\rightarrow 2^{i+1}
+$$
+
+这样一级一级移动，而是在一个“平方根递归”的结构中移动。
+
+一个元素大致经历：
+
+$$
+\text{top}
+\rightarrow
+\text{upper subtreaps}
+\rightarrow
+\text{middle}
+\rightarrow
+\text{lower subtreaps}
+\rightarrow
+\text{bottom}.
+$$
+
+每次某个区域出现 overflow，结构都尽量通过批量扫描，把大量元素一起移动到相邻递归区域。
+
+这种递归设计的关键好处是：**元素经过的有效层数不再由简单的 base-2 几何增长决定，而由递归尺度决定。**
+
+完整版论文将这种结构作为 x-treap 的几何基础。
+
+---
+
+## 7.3 x-treap 实际上同时维护两种“顺序”
+
+x-treap 并不是普通意义上的二叉堆，也不是标准的随机 treap。
+
+它更像是把两个不同维度的顺序同时叠加到一个递归结构中。
+
+第一个维度是：
+
+> **key 的顺序。**
+
+递归 subtreap 按照 key range 被划分。
+
+例如，一个 subtreap 只负责：
+
+$$
+[k_1,k_2)
+$$
+
+范围中的 key，而相邻 subtreap 负责：
+
+$$
+[k_2,k_3).
+$$
+
+因此，当需要处理相同 key、合并重复 key 或将元素分配到子结构时，可以利用 key-sorted array 进行顺序扫描，而不需要逐个随机查找。
+
+第二个维度是：
+
+> **priority 的顺序。**
+
+x-treap 要保证越靠近结构顶部的某些元素具有越小的 priority，使 `ExtractMin` 最终只需要关注顶部区域。
+
+论文把这一点称为一种 **treap-like arrangement**：
+
+* key 决定一个方向上的递归划分；
+* priority 决定另一个方向上的上下关系。
+
+因此，可以把 x-treap 粗略想象成一个二维结构：
+
+```text
+            priority 方向
+            小
+            ↑
+            │       top
+            │
+            │   upper subtreaps
+            │
+            │      middle
+            │
+            │   lower subtreaps
+            │
+            │      bottom
+            ↓
+            大
+
+        ←------ key ------→
+```
+
+这个二维观点非常重要。
+
+后续很多看起来复杂的 invariant，本质上都是在保证：
+
+* 水平方向能够按 key 批量处理；
+* 垂直方向能够按 priority 找到最小元素。
+
+论文明确描述 x-treap 为使用 key 和 priority 两个维度形成的 treap-like arrangement。
+
+---
+
+## 7.4 rear buffer 和 front buffer 分别扮演什么角色
+
+x-treap 中每一个主要 buffer 都被分成：
+
+* front buffer；
+* rear buffer。
+
+理解这两个部分，是理解整个结构的关键。
+
+可以先用一个并不完全正式、但非常有用的直觉来理解：
+
+> **rear buffer 更像“更新流”；front buffer 更像“候选最小元素流”。**
+
+### rear buffer：让更新便宜地向下流动
+
+当新的更新进入数据结构后，它通常首先出现在较高位置的 rear buffer 中。
+
+这些元素不需要立刻被安排到最终的 priority 位置。
+
+当 rear buffer 逐渐变满时，大量元素可以一起被推向结构更深的位置。
+
+因此 rear buffer 的主要价值是：
+
+> **允许 Update 延迟整理，从而使大量元素共享一次批量移动的 I/O 成本。**
+
+论文在高层分析中描述了一个元素的典型生命周期：元素从顶部 rear buffer 开始，随着 buffer overflow 逐渐向下移动。
+
+### front buffer：保存更接近 ExtractMin 的元素
+
+front buffer 则承担另一种职责。
+
+对于同一个 buffer，front 中元素的 priority 必须小于 rear 中元素的 priority。
+
+而且更重要的是，一个 front buffer 中的元素，还必须比位于它下方 buffer 中的元素拥有更小的 priority。
+
+因此，front buffer 可以理解为：
+
+> **从当前区域中筛选出的、更加接近全局最小值的一批候选元素。**
+
+当最上层 front buffer 中的元素不足时，`Flush-Up` 会从下面的结构中找出优先级较小的元素，并把它们向上补充。
+
+最终，`Batched-ExtractMin` 只需要从 top front buffer 中取元素。论文明确指出，经过 `Flush-Up` 后，top front buffer 保存的是结构中最小 priority 的代表元素。
+
+---
+
+## 7.5 一个元素的典型生命周期
+
+忽略许多实现细节，一个元素在 x-treap 中可以经历下面的过程：
+
+```text
+Update
+  ↓
+top rear
+  ↓
+rear buffers 向下移动
+  ↓
+某个位置被 Resolve
+  ↓
+rear → front
+  ↓
+front buffers 向上移动
+  ↓
+top front
+  ↓
+ExtractMin
+```
+
+这里存在明显的不对称性：
+
+### 向下运动
+
+Update 产生的元素可以大量聚集后一起向下移动。
+
+这种移动主要由扫描完成，因此每个元素承担的成本可以很低。
+
+### 向上运动
+
+一个元素只有在成为比较重要的“小 priority 候选”之后，才需要进入 front buffer，并逐渐向上移动。
+
+这类操作本身更加昂贵。
+
+因此，本文实际上把：
+
+> **便宜的向下传播**
+
+主要归给 `Update`，
+
+而把：
+
+> **昂贵的向上恢复最小元素**
+
+主要归给 `ExtractMin`。
+
+这正好对应前文已经讨论过的复杂度权衡：
+
+$$
+\text{cheap Update}
+\quad\Longleftrightarrow\quad
+\text{expensive ExtractMin}.
+$$
+
+论文的高层解释正是通过这种“先向下、再转入 front、再向上”的元素生命周期解释其摊还复杂度设计。
+
+---
+
+## 7.6 为什么相同 key 的多个版本不会立即被删除
+
+这一设计还需要解决 `DecreaseKey` 带来的重复版本问题。
+
+例如连续执行：
+
+$$
+(A,10),
+\qquad
+(A,6),
+\qquad
+(A,3).
+$$
+
+x-treap 并不要求每次出现 $(A,3)$ 时，立即在整个外存结构中寻找并删除 $(A,10)$ 和 $(A,6)$。
+
+那样会重新产生大量随机 I/O。
+
+相反，结构允许同一个 key 的物理副本暂时存在于不同区域。
+
+但是，在**同一个已经 Resolve 的 buffer 中**，每个 key 最终只保留其中 priority 最小的版本。
+
+也就是说：
+
+$$
+(A,10),(A,6),(A,3)
+$$
+
+在同一个 buffer 被 Resolve 后，只留下：
+
+$$
+(A,3).
+$$
+
+这样做把“全局立即删除旧版本”的问题，转换成了：
+
+> **元素经过某个 buffer 时，顺便批量消除该 buffer 中的重复版本。**
+
+由于 buffer 按 key 排序，这一去重可以通过扫描完成，而不是通过随机查找完成。`Resolve` 的正式算法正是把 front/rear 按 key merge，再为每个 key 保留最低 priority。
+
+---
+
+## 7.7 物理存储和逻辑状态必须区分
+
+因此，理解 x-treap 时必须区分两个概念：
+
+### 物理上存储的元素
+
+结构中可能同时存在：
+
+$$
+(A,10),
+(A,6),
+(A,3).
+$$
+
+### 逻辑上代表的元素
+
+从优先队列语义来看，key $A$ 当前真正代表的 priority 应该只有：
+
+$$
+(A,3).
+$$
+
+论文把 x-treap 当前逻辑代表的集合记作：
+
+$$
+D.rep=
+\bigcup_{k:\exists p,(k,p)\in D}
+\left{
+\left(
+k,
+\min{p:(k,p)\in D}
+\right)
+\right}.
+$$
+
+因此，x-treap 本质上允许：
+
+> **物理结构暂时有冗余，但逻辑语义保持唯一。**
+
+这正是延迟处理 `DecreaseKey` 的关键。
+
+如果不能接受这种物理冗余，就必须在每次更新时马上找到旧版本，而那正是外存算法希望避免的随机访问。论文将 minimum-priority copy 定义为该 key 的 representative element。
+
+---
+
+## 7.8 x-treap 最重要的设计思想
+
+从目前的层次来看，x-treap 的核心可以概括成四句话：
+
+### 第一：不要立即完成 Update
+
+先缓存，让更新批量向下传播。
+
+### 第二：key 和 priority 分工
+
+key 用于决定递归分区和批量 merge；
+
+priority 用于决定哪些元素应该靠近结构顶部。
+
+### 第三：允许物理冗余
+
+不同版本可以暂时共存，从而避免随机删除。
+
+### 第四：把昂贵工作转移给 ExtractMin
+
+Update 主要沿 rear buffer 便宜地下沉；
+
+真正需要找最小元素时，再通过 front buffer 和 `Flush-Up` 承担较昂贵的工作。
+
+因此，x-treap 的复杂性并不是为了“做一个更复杂的堆”，而是为了实现前文的核心目标：
+
+> **把外存优先队列中不可避免的整理成本，从频繁发生的 Update 上移走。**
+
+---
+
+# 8. x-treap 的具体结构
+
+## 8.1 参数与逻辑表示
+
+一个 x-treap 记作 $D$。
+
+它有一个尺度参数：
+
+$$
+D.x.
+$$
+
+需要特别注意：
+
+> $D.x$ 并不是当前存储的元素个数。
+
+它是决定整个递归结构各 buffer 大小的**尺度参数**。
+
+对于参数：
+
+$$
+\alpha\in(0,1],
+$$
+
+一个 x-treap 的总容量小于：
+
+$$
+2(D.x)^{1+\alpha}.
+$$
+
+它同时负责一个 key range：
+
+$$
+[D.k_{\min},D.k_{\max}).
+$$
+
+x-treap 中可能物理存储多个具有相同 key 的元素，但其逻辑集合 $D.rep$ 对每个仍被表示的 key 只保留最低 priority 的 pair。
+
+---
+
+## 8.2 三个主 buffer
+
+非 base-case 的 x-treap 包含三个主要 buffer：
+
+```text
+top buffer
+middle buffer
+bottom buffer
+```
+
+其容量分别为：
+
+$$
+D.x,
+$$
+
+$$
+(D.x)^{1+\frac{\alpha}{2}},
+$$
+
+以及：
+
+$$
+(D.x)^{1+\alpha}.
+$$
+
+因此，从 top 到 bottom，buffer 会迅速变大。
+
+如果取最容易理解的：
+
+$$
+\alpha=1,
+$$
+
+则三个规模分别变成：
+
+$$
+D.x,
+\qquad
+(D.x)^{3/2},
+\qquad
+(D.x)^2.
+$$
+
+这就是论文在高层直觉中使用的：
+
+$$
+x,\quad x^{1.5},\quad x^2
+$$
+
+结构。
+
+正式定义使用参数 $\alpha$，是为了控制最终的复杂度权衡。
+
+---
+
+## 8.3 两层 recursive subtreap
+
+三个主 buffer 之间还夹着两层递归结构。
+
+整体排列为：
+
+```text
+top buffer
+
+upper-level subtreaps
+
+middle buffer
+
+lower-level subtreaps
+
+bottom buffer
+```
+
+每一个递归 subtreap 本身又是一个：
+
+$$
+\sqrt{D.x}\text{-treap}.
+$$
+
+因此，整个结构具有明显的自相似性质。
+
+### upper level
+
+upper level 最多包含：
+
+$$
+\frac14(D.x)^{1/2}
+$$
+
+个 subtreap。
+
+### lower level
+
+lower level 最多包含：
+
+$$
+\frac14(D.x)^{\frac{1+\alpha}{2}}
+$$
+
+个 subtreap。
+
+这些常数 $\frac14$ 本身不是理解结构的重点。
+
+真正重要的是指数。
+
+一个 $\sqrt{D.x}$-treap 的容量大约处在
+
+$$
+(D.x)^{\frac{1+\alpha}{2}}
+$$
+
+这一尺度。
+
+因此 upper level 的总容量大致是：
+
+$$
+(D.x)^{1/2}
+\cdot
+(D.x)^{\frac{1+\alpha}{2}}
+==========================
+
+(D.x)^{1+\frac{\alpha}{2}},
+$$
+
+与 middle buffer 的尺度相匹配。
+
+类似地，lower level 的总容量大致是：
+
+$$
+(D.x)^{\frac{1+\alpha}{2}}
+\cdot
+(D.x)^{\frac{1+\alpha}{2}}
+==========================
+
+(D.x)^{1+\alpha},
+$$
+
+与 bottom buffer 的尺度相匹配。
+
+这解释了一个非常关键的结构设计：
+
+> **相邻层级能够容纳数量级相近的数据，因此 overflow 或 underflow 时可以通过大规模批量移动来重新平衡。**
+
+这一点正是 x-box 递归设计降低 I/O 的核心。
+
+---
+
+## 8.4 每个 buffer 都进一步分为 front 和 rear
+
+top、middle 和 bottom 并不是单一数组。
+
+每一个 buffer 都进一步分为：
+
+```text
+front | rear
+```
+
+因此，从逻辑上看，一个 x-treap 实际包含：
+
+```text
+top front      top rear
+
+upper recursive subtreaps
+
+middle front   middle rear
+
+lower recursive subtreaps
+
+bottom front   bottom rear
+```
+
+front/rear 的区别不是按照 key range 划分。
+
+两者最重要的区别在于 **priority**。
+
+front 保存该 buffer 中 priority 较小的一部分元素；
+
+rear 保存 priority 较大的一部分元素。
+
+同时，两边内部仍然按照 key 排序。
+
+这使得同一个 buffer 同时满足两个需求：
+
+* 可以按 key 做 merge 和 duplicate elimination；
+* 可以按 priority 区分“更接近 ExtractMin”的元素和“仍在更新流中”的元素。
+
+---
+
+## 8.5 “above”和“below”不是简单的数组上下位置
+
+论文为了描述 priority 关系，定义了一个 partial order：
+
+$$
+\text{top buffer}
+\preceq
+\text{upper subtreaps}
+\preceq
+\text{middle buffer}
+\preceq
+\text{lower subtreaps}
+\preceq
+\text{bottom buffer}.
+$$
+
+论文把这个顺序称为：
+
+* above；
+* below。
+
+这里的“上”和“下”不是简单的内存地址位置，而是整个递归结构中的逻辑顺序。
+
+例如：
+
+* top 在 upper subtreaps 上方；
+* upper subtreaps 在 middle 上方；
+* middle 在 lower subtreaps 上方；
+* lower subtreaps 在 bottom 上方。
+
+这个 partial order 是后续 priority invariant 的基础。
+
+---
+
+# 8.6 五个核心 Invariant
+
+x-treap 的正确性主要由五个结构不变量保证。
+
+这些 invariant 在每次**接口操作完成后**必须成立。
+
+在 `Resolve`、`Flush-Up`、`Flush-Down` 等辅助操作执行过程中，它们可以暂时被破坏，但操作结束时必须恢复。
+
+---
+
+### Invariant 1：buffer 内按 key 排序
+
+对于任意 buffer $b$：
+
+> front 和 rear 中的元素分别按照 key 排序，并且元素在数组中 left-justified。
+
+这里的 left-justified 可以理解为：
+
+```text
+有元素 有元素 有元素 有元素 空 空 空
+```
+
+而不是：
+
+```text
+有元素 空 有元素 空 有元素 ...
+```
+
+这样 buffer 可以通过连续扫描进行：
+
+* merge；
+* split；
+* duplicate elimination。
+
+这是保证外存批处理效率的基础。
+
+---
+
+### Invariant 2：front 的 priority 小于 rear
+
+同一个 buffer 中：
+
+> front 中所有元素的 priority 都小于 rear 中所有元素的 priority。
+
+因此可以粗略理解成：
+
+```text
+small priority  |  large priority
+     front      |      rear
+```
+
+这就是 front 能够作为“更接近 ExtractMin 的候选集合”的原因。
+
+`Resolve` 的一个主要任务，就是在其他操作暂时打乱这一关系后恢复这个 invariant。
+
+---
+
+### Invariant 3：front 的元素比所有下方元素优先级更小
+
+对于任意 buffer $b$：
+
+> $b$ 的 front buffer 中元素的 priority，小于所有位于 $b$ 下方 buffer 中元素的 priority。
+
+这比 Invariant 2 更强。
+
+Invariant 2 只比较：
+
+```text
+同一个 buffer：
+front vs rear
+```
+
+Invariant 3 比较的是：
+
+```text
+front
+vs
+整个结构中位于它下面的 buffer
+```
+
+这意味着，如果 top front 中存在足够多元素，那么这些元素确实是整个 x-treap 中 priority 最小的一批 representative elements。
+
+因此，`Batched-ExtractMin` 不需要搜索整棵递归结构，只需要保证 top front 被正确补充，然后从那里提取即可。
+
+---
+
+### Invariant 4：recursive subtreap 按 key range 分区
+
+假设 top 或 middle buffer $b$ 的 key range 为：
+
+$$
+[b.k_{\min},b.k_{\max}).
+$$
+
+位于它正下方的 subtreap 会把这一范围划分成若干连续且互不重叠的 key range。
+
+若这些 subtreap 为：
+
+$$
+D_1,D_2,\ldots,D_r,
+$$
+
+则有：
+
+$$
+b.k_{\min}
+==========
+
+D_1.k_{\min}
+<
+D_1.k_{\max}
+============
+
+D_2.k_{\min}
+<
+\cdots
+<
+D_r.k_{\max}
+============
+
+b.k_{\max}.
+$$
+
+因此，一旦知道某个元素的 key，就能够确定它属于哪个 subtreap 的 key range。
+
+更重要的是，当许多元素已经按 key 排序时，可以按顺序扫描整个数组，同时按 key range 把它们批量分发给相应 subtreap。
+
+这避免了逐个元素进行随机 child lookup。
+
+---
+
+### Invariant 5：下层 buffer 非空意味着中间递归层也非空
+
+如果 middle buffer 非空，则至少有一个 upper-level subtreap 非空。
+
+类似地，如果 bottom buffer 非空，则至少有一个 lower-level subtreap 非空。
+
+也就是说，结构不能出现类似：
+
+```text
+middle 有元素
+但所有 upper subtreap 都完全为空
+```
+
+这样的状态。
+
+这一 invariant 保证了递归层和相邻 buffer 之间具有一致的结构关系，并为后续的 `Flush-Up` 和 `Flush-Down` 提供合法的递归路径。正式论文将其列为第五个结构不变量。
+
+---
+
+## 8.7 为什么前三个 invariant 最重要
+
+从理解优先队列正确性的角度，前三个 invariant 尤其关键。
+
+它们分别保证了：
+
+### Invariant 1
+
+$$
+\text{key 可批量处理}
+$$
+
+### Invariant 2
+
+$$
+\text{front 是 buffer 内较小 priority 的部分}
+$$
+
+### Invariant 3
+
+$$
+\text{越靠上的 front 越接近全局 minimum}
+$$
+
+因此，x-treap 的两个核心维度再次体现出来：
+
+```text
+Invariant 1
+    ↓
+key order
+
+Invariant 2 + 3
+    ↓
+priority order
+```
+
+而 Invariant 4、5 主要负责让这种顺序能够嵌入递归结构中持续维护。
+
+---
+
+## 8.8 Base Case
+
+x-treap 不会无限递归下去。
+
+完整版中，当：
+
+$$
+D.x
+\le
+c'\lambda^{\frac{1}{1+\alpha}}
+$$
+
+时，递归停止，改用一个简单的 base-case structure。
+
+由于一个 x-treap 的容量尺度为：
+
+$$
+O\left(
+(D.x)^{1+\alpha}
+\right),
+$$
+
+因此在这一阈值下，base case 实际存储的元素量为：
+
+$$
+O(\lambda).
+$$
+
+在 cache-aware 情况下，作者取：
+
+$$
+\lambda=\Theta(M),
+$$
+
+于是整个 base case 可以落在主存规模附近。
+
+这时就没有必要继续维持复杂的递归 buffer 结构，可以使用简单数组进行处理。
+
+这种设计还有一个重要意义：
+
+> **x-treap 的递归结构最终把大问题不断压缩成能够在较快存储层中廉价处理的小问题。**
+
+正式完整版给出的 base-case 阈值和其 `Batched-Insert`、`Batched-ExtractMin` 性能正是整个递归分析的终止条件。
+
+---
+
+## 8.9 x-treap 的整体结构总结
+
+到这里，可以把一个 x-treap $D$ 总结成下面的结构：
+
+```text
+                 top
+          ┌────────────────┐
+          │ front | rear   │
+          └────────────────┘
+
+              upper level
+       ┌────┬────┬────┬──────┐
+       │ √x │ √x │ √x │ ...  │
+       └────┴────┴────┴──────┘
+
+                middle
+       ┌──────────────────────┐
+       │   front  |  rear     │
+       └──────────────────────┘
+
+              lower level
+   ┌────┬────┬────┬────┬─────────┐
+   │ √x │ √x │ √x │ √x │  ...    │
+   └────┴────┴────┴────┴─────────┘
+
+                bottom
+   ┌──────────────────────────────┐
+   │        front | rear          │
+   └──────────────────────────────┘
+```
+
+其中：
+
+* **key** 决定元素应该进入哪个 recursive subtreap；
+* **priority** 决定元素更应该处在 front 还是 rear，以及应该位于结构的较高还是较低位置；
+* **rear** 主要承载便宜的更新传播；
+* **front** 主要承载最小元素候选；
+* **递归结构** 降低一个元素需要经过的有效层数；
+* **Resolve** 负责局部消除重复 key 并恢复 front/rear 的 priority 关系；
+* **Flush-Up** 将较小 priority 的元素向上移动；
+* **Flush-Down** 将较大 priority 的元素向下移动。
+
+因此，后续所有复杂的辅助操作实际上都可以看成是在解决同一个问题：
+
+> **当某个 buffer 太满、太空或者 front/rear 顺序被破坏时，怎样只通过大规模批处理重新恢复这五个 invariant，而不是逐个元素进行随机访问。**
+
+这正是下一节分析 `Resolve`、`Flush-Up`、`Flush-Down` 等具体操作时的主线。
