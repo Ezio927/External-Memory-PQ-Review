@@ -2637,3 +2637,1428 @@ Flush-Up
 这解释了为什么最终可以优先降低 `Update` 的 I/O 成本，同时允许 `ExtractMin` 承担更高的代价。
 
 到这里，x-treap 的主要结构和操作已经完整。下一步需要分别讨论这些操作的**正确性**以及它们的**摊还 I/O 复杂度**。
+
+---
+
+# 10. 正确性分析
+
+x-treap 的正确性难点不在于普通的插入，而在于它允许同一个 key 的多个物理副本暂时存在于不同 buffer 和 recursive subtreap 中。
+
+因此，需要证明三件事：
+
+1. 多个物理版本不会改变同一个 key 的正确逻辑状态；
+2. x-treap 的结构 invariants 能保证最小 priority 元素最终出现在 top front；
+3. 已经被提取或删除的旧副本不会再次被完整优先队列返回。
+
+---
+
+## 10.1 representative element 保证逻辑状态唯一
+
+对于同一个 key，x-treap 可能物理存储多个版本，例如：
+
+$$
+(A,10),(A,6),(A,3).
+$$
+
+但逻辑上只把最低 priority 的版本：
+
+$$
+(A,3)
+$$
+
+视为 representative element。
+
+因此，x-treap 的逻辑状态并不要求物理上立即删除所有旧版本。
+
+当新的：
+
+$$
+(k,p)
+$$
+
+被 `Batched-Insert` 加入时：
+
+* 如果 $k$ 原来不存在，它成为新的 represented key；
+* 如果 $k$ 已存在且 $p$ 更小，则新的 pair 成为 representative；
+* 如果 $p$ 不更小，则原 representative 不变。
+
+这正好对应 `Insert` 与 `DecreaseKey` 的逻辑语义。
+
+`Resolve` 会在单个 buffer 内按 key 合并 front/rear，并对同一个 key 只保留最低 priority 的版本。
+
+因此，它删除的只是当前 buffer 中已经失效的重复版本，而不会删除该 key 的最低 priority representative。
+
+---
+
+## 10.2 invariants 保证最小元素能够被移动到 top front
+
+x-treap 的 priority 正确性主要依赖 Invariant 2 和 Invariant 3。
+
+Invariant 2 保证同一个 buffer 内：
+
+$$
+p_{\text{front}}
+<
+p_{\text{rear}}.
+$$
+
+Invariant 3 保证：
+
+> 一个 buffer 的 front 元素，比位于该 buffer 下方的元素具有更小 priority。
+
+因此，x-treap 从上到下形成了一个 priority 层级。
+
+当 top front 中元素不足时，`Flush-Up` 按照这一层级递归寻找较小 priority 的 representative elements：
+
+```text
+upper subtreaps
+      ↓
+middle front
+      ↓
+lower subtreaps
+      ↓
+bottom
+```
+
+不同 subtreap 暴露出的候选元素通过临时优先队列进行比较，从而选出真正较小的一批元素向上移动。
+
+所以 `Flush-Up` 完成后，top front 中包含当前 x-treap 中一批具有最小 represented priorities 的 representative elements。
+
+---
+
+## 10.3 `Batched-ExtractMin` 为什么正确
+
+`Batched-ExtractMin` 只需要检查 top front。
+
+如果：
+
+$$
+|\text{top front}|
+<
+\frac14D.x,
+$$
+
+算法首先调用：
+
+$$
+\operatorname{Flush\text{-}Up}(D).
+$$
+
+由于 `Flush-Up` 已经把当前较小 priority 的 representative elements 移动到 top front，随后从 top front 返回元素就是正确的 minimum batch。
+
+其证明关系可以概括为：
+
+```text
+Invariant 2 + Invariant 3
+          ↓
+Flush-Up 找到下一批较小 priority
+          ↓
+top front 保存 minimum representatives
+          ↓
+Batched-ExtractMin 正确
+```
+
+其他辅助操作则负责保证这一证明所依赖的 invariants 在操作完成后恢复：
+
+* `Resolve` 保持 key order 并恢复 front/rear；
+* `Initialize` 构造满足 invariants 的新 subtreap；
+* `Flush-Down` 从 bottom 优先移走较大的 priority；
+* `Split` 按 key 拆分 subtreap，并保持 front/rear 结构；
+* `Batched-Insert` 通过这些操作递归地恢复整个 x-treap。
+
+---
+
+## 10.4 ghost 为什么不会被重复返回
+
+单个 x-treap 的 `Resolve` 只能清除**同一 buffer 内**的重复版本。
+
+因此，当某个 representative 已经被 `ExtractMin` 返回以后，它的旧副本仍然可能留在其他层级。
+
+例如：
+
+```text
+(A,3)  已经被 ExtractMin 返回
+
+(A,10) 仍然物理存在
+```
+
+后者已经不再是有效元素，而是一个 ghost。
+
+完整的优先队列由多个不同规模的 x-treap 组成，并额外维护一个哈希表：
+
+$$
+X.
+$$
+
+所有已经被 `ExtractMin` 或 `Delete` 的 key 都记录在 $X$ 中。
+
+如果旧 ghost 以后又被移动到结构顶部，算法在返回前检查它的 key。
+
+如果：
+
+$$
+k\in X,
+$$
+
+说明该元素已经失效，于是直接丢弃并继续执行 `ExtractMin`。
+
+因此：
+
+> 旧版本可以暂时继续物理存在，但不能重新成为用户可见的有效元素。
+
+这也是论文要求一个已经不再 represented 的 key 不能重新插入的重要原因。
+
+---
+
+## 10.5 从单个 x-treap 到完整优先队列
+
+完整优先队列由多个逐渐增大的 x-treap：
+
+$$
+D_0,D_1,\ldots
+$$
+
+组成。
+
+论文还维护不同 x-treap 之间的 priority 顺序，使上方结构中的 represented priority 小于下方结构中的 represented priority。
+
+执行完整 `ExtractMin` 时，如果较小的 x-treap 没有元素，就从更大的 x-treap 执行 `Batched-ExtractMin`，并把得到的一批较小 priority 元素逐级向上移动，直到 $D_0$ 能够返回元素。
+
+最终再通过哈希表 $X$ 过滤已经失效的 ghost。
+
+所以完整正确性可以概括为：
+
+```text
+representative semantics
+        ↓
+同 key 的逻辑状态正确
+        ↓
+x-treap invariants
+        ↓
+Flush-Up 暴露 minimum
+        ↓
+Batched-ExtractMin
+        ↓
+多个 x-treap 间逐级向上
+        ↓
+hash table 过滤 ghost
+        ↓
+返回有效的全局 minimum
+```
+
+因此，本文并不依靠“立即删除所有旧版本”保证正确性。
+
+它采用的是另一种思路：
+
+> **允许物理结构中暂时存在冗余版本，但通过 representative element、priority invariants 和 ghost filtering 保证优先队列对外表现出的逻辑状态始终正确。**
+
+---
+
+# 11. I/O 复杂度分析
+
+前面的结构与正确性分析说明了 x-treap 怎样工作，但还需要解释为什么这些递归操作最终能够达到论文声称的 I/O 复杂度。
+
+这里的关键是**摊还分析**。
+
+一次 `Flush-Up`、`Flush-Down` 或 `Split` 本身可能需要扫描大量数据，但这些操作只有在 buffer 已经积累了足够多元素时才发生。因此，一次批量操作的成本可以由大量元素共同承担。
+
+论文进一步使用势能函数处理元素可能多次上下移动的问题。
+
+---
+
+## 11.1 批处理为什么能把每元素成本降到 $O(1/B)$
+
+假设一个 buffer 中有：
+
+$$
+\Theta(C)
+$$
+
+个元素。
+
+一次扫描需要：
+
+$$
+O(C/B)
+$$
+
+次 I/O。
+
+如果这次扫描同时处理：
+
+$$
+\Theta(C)
+$$
+
+个元素，那么平均到每个元素的成本为：
+
+$$
+O(1/B).
+$$
+
+因此，x-treap 尽量避免：
+
+> 为一个元素单独执行一次外存访问。
+
+而是等 buffer 达到一定规模之后，通过：
+
+* scan；
+* merge；
+* `Flush-Down`；
+* `Split`
+
+等批量操作统一处理。
+
+这就是 `Batched-Insert` 能获得低 I/O 成本的基础。
+
+---
+
+## 11.2 为什么需要势能分析
+
+简单地统计元素“向下几层、再向上几层”并不足以严格证明复杂度。
+
+真实算法中，一个元素可能因为：
+
+* `Flush-Up`；
+* `Flush-Down`；
+* `Split`；
+* `Initialize`
+
+多次改变位置。
+
+论文因此为各个 buffer 定义 potential。
+
+可以把 potential 理解成：
+
+> **为未来结构重整预先储存的 I/O 预算。**
+
+例如，front buffer 在元素数量位于：
+
+$$
+\frac14|b|
+\le
+b_f
+\le
+\frac13|b|
+$$
+
+之间时，其对应的 front potential 为零。
+
+这个范围可以看作 buffer 的稳定区域。
+
+当 front 太空时，未来可能需要执行昂贵的 `Flush-Up`；当 buffer 接近其他重整条件时，也会逐渐积累 potential。
+
+实际 flush 发生时，potential 下降，用来支付数据移动的 I/O。
+
+势能中还包含与剩余递归层数有关的因子，因此元素向上或向下移动一层时，释放的势能可以支付对应的移动成本。
+
+---
+
+## 11.3 `Batched-Insert` 为什么便宜
+
+新的更新首先进入 rear，并主要通过：
+
+```text id="1miiuh"
+merge
+↓
+Resolve
+↓
+Flush-Down
+↓
+recursive Batched-Insert
+```
+
+向结构深处传播。
+
+这些操作主要由顺序扫描和批量移动组成。
+
+一次 `Flush-Down` 会移动一个常数比例的元素，因此其成本可以在大量元素之间分摊。
+
+论文证明，在 x-treap 中，一个插入元素每经过一个有效层级只需要承担：
+
+$$
+O(1/B)
+$$
+
+量级的摊还 I/O。
+
+因此 `Batched-Insert` 的成本本质上是：
+
+$$
+O\left(
+\frac1B
+\times
+\text{x-treap 的有效层数}
+\right).
+$$
+
+这解释了为什么更新方向可以保持较低成本。
+
+---
+
+## 11.4 `Batched-ExtractMin` 为什么更贵
+
+`Batched-ExtractMin` 的主要成本来自 `Flush-Up`。
+
+当 top front 不足时，需要从递归结构的更深位置重新收集较小 priority 的 candidate。
+
+这一过程除了 scan 和 merge，还需要比较多个 subtreap 暴露出的候选元素。
+
+论文令：
+
+$$
+\varepsilon
+===========
+
+\frac{\alpha}{1+\alpha},
+$$
+
+并证明向上恢复 minimum candidates 时，每个元素承担的摊还成本比普通向下传播多出大约：
+
+$$
+\lambda^\varepsilon
+$$
+
+因子。
+
+因此可以直观地比较为：
+
+```text id="vwlm8c"
+向下的 Batched-Insert：
+每层约 O(1/B)
+
+向上的 Batched-ExtractMin：
+每层约 O(λ^ε/B)
+```
+
+这就是 x-treap 内部产生非对称复杂度的原因。
+
+---
+
+## 11.5 从 x-treap 到完整优先队列
+
+完整优先队列由多个尺度快速增长的 x-treap：
+
+$$
+D_0,D_1,\ldots
+$$
+
+组成。
+
+`Update` 首先插入最小的 $D_0$。
+
+如果某个 $D_i$ 达到容量上限，就：
+
+```text id="46kin3"
+Flush-Down(D_i)
+        ↓
+得到一个大 batch
+        ↓
+Batched-Insert(D_{i+1})
+```
+
+这种级联只有在 $D_i$ 已经积累了足够多更新后才发生，因此可以继续进行摊还。
+
+最终，论文得到：
+
+$$
+O\left(
+\frac1B
+\log_{\lambda/B}
+\frac NB
+\right)
+$$
+
+的 `Update` 摊还 I/O 复杂度。
+
+在 cache-aware 设置下取：
+
+$$
+\lambda=O(M),
+$$
+
+得到：
+
+$$
+O\left(
+\frac1B
+\log_{M/B}
+\frac NB
+\right).
+$$
+
+这一复杂度达到外存排序中每个元素平均承担的 I/O 成本量级，因此 `Update` 是 I/O-optimal 的。
+
+---
+
+## 11.6 `ExtractMin`、ghost 与最终复杂度
+
+完整 `ExtractMin` 可能需要从较大的 x-treap 中执行 `Batched-ExtractMin`，然后把得到的 minimum candidates 逐级向较小的 x-treap 移动。
+
+因此，它除了承担单个 x-treap 内 `Flush-Up` 的成本，还可能承担多个 x-treap 之间的向上传播成本。
+
+此外，同一个 key 的旧物理副本可能成为 ghost。
+
+论文为已经被 `ExtractMin` 或 `Delete` 的 key 维护哈希表 $X$，同时在摊还分析中使用额外的 ghost potential 支付以后发现和丢弃这些 ghost 的成本。
+
+最终，在 cache-aware 模型下，对于任意：
+
+$$
+\varepsilon\in(0,1),
+$$
+
+论文得到：
+
+### `Update`
+
+$$
+O\left(
+\frac1B
+\log_{M/B}
+\frac NB
+\right)
+$$
+
+amortized I/Os。
+
+### `ExtractMin` 和 `Delete`
+
+$$
+O\left(
+\left\lceil
+\frac{M^\varepsilon}{B}
+\log_{M/B}
+\frac NB
+\right\rceil
+\log_{M/B}
+\frac NB
+\right)
+$$
+
+amortized I/Os。
+
+因此，复杂度分析最终验证了前文一直强调的设计目标：
+
+```text id="e5j2bn"
+Update
+  ↓
+主要依靠 batching 和向下传播
+  ↓
+I/O-optimal
+
+
+ExtractMin
+  ↓
+需要 Flush-Up、跨层恢复和 ghost 处理
+  ↓
+承担更高复杂度
+```
+
+论文并没有消除支持 `DecreaseKey` 的全部代价，而是通过 x-treap 和势能分析证明：
+
+> **这些代价可以被重新分配，使频繁发生的 `Update` 达到 I/O 最优，而把更多成本留给 `ExtractMin` 和 `Delete`。**
+
+---
+
+# 12. Buffered Repository Tree
+
+除了 priority queue，本文改进图算法时还需要另一种外存数据结构：
+
+> **Buffered Repository Tree（BRT）**。
+
+priority queue 用于按照 priority 选择下一项，而 BRT 用于按照指定 key 查找并删除所有相关记录。
+
+BRT 存储一个 multiset，并支持：
+
+* `Insert(e)`：插入一个元素；
+* `Extract(k)`：返回并删除所有 key 等于 $k$ 的元素。
+
+如果共有 $K$ 个匹配元素，`Extract(k)` 会一次返回全部 $K$ 个。
+
+---
+
+## 12.1 为什么图算法需要 BRT
+
+在内存图算法中，经常需要检查某个 vertex 是否已经被访问。
+
+如果直接在外存中随机访问：
+
+```text
+visited[v]
+```
+
+大量这样的操作会产生昂贵的 random I/O。
+
+BRT 通过 buffering 和 batching 处理按 vertex key 组织的大量记录，从而避免逐条模拟内存中的随机访问。
+
+因此，priority queue 和 BRT 在图算法中的作用不同：
+
+```text
+Priority Queue:
+按 priority 选择下一节点
+
+BRT:
+按 vertex key 找到相关记录
+```
+
+本文指出，已有 external-memory SSSP、DFS 和 BFS 算法都需要这两类数据结构。
+
+---
+
+## 12.2 从传统 BRT 到 x-box
+
+BRT 最早由 Buchsbaum 等人在 external-memory graph traversal 工作中提出。
+
+传统 BRT 可以理解成带 buffer 的搜索树：插入元素不会立即逐个沿搜索路径下降，而是在 buffer 中积累后批量传播。
+
+本文进一步使用 Brodal 等人提出的 **x-box** 改进 BRT。
+
+这里需要注意：
+
+> BRT 使用的是 x-box，而不是前面 priority queue 使用的 x-treap。
+
+x-box 支持：
+
+* `Batched-Insert`：插入一批按照 key 排序的元素；
+* `Search(D,k)`：寻找 x-box 中所有具有指定 key 的元素。
+
+因此 BRT 的 `Extract(k)` 可以通过：
+
+```text
+Search(k)
+    ↓
+找到所有 matching elements
+    ↓
+remove + report
+```
+
+实现。
+
+---
+
+## 12.3 BRT 的整体结构
+
+对于最多 $N$ 个元素，本文的 BRT 由：
+
+$$
+1+\log_{1+\alpha}\log_2N
+$$
+
+个规模 doubly increasing 的 x-box 组成，其中：
+
+$$
+0<\alpha\le1.
+$$
+
+每个 x-box 都负责一个给定 key range，并通过 recursive buffering 支持批量插入和搜索。
+
+这种快速增长的尺度使整个 BRT 只需要少量不同规模的 x-box，同时能够容纳 $N$ 个元素。
+
+---
+
+## 12.4 Insert 为什么便宜
+
+x-box 的插入主要采用：
+
+```text
+buffer
+↓
+batch accumulation
+↓
+Batched-Insert
+↓
+recursive propagation
+```
+
+一个元素每向下一层只需要承担：
+
+$$
+O(1/B)
+$$
+
+量级的摊还 I/O。
+
+因此完整 BRT 的 Insert 复杂度为：
+
+$$
+O\left(
+\frac1B
+\log_{\lambda/B}
+\frac NB
+\right)
+$$
+
+amortized I/Os。
+
+其核心仍然是本文反复使用的思想：
+
+> 不为单个 update 执行随机外存访问，而是积累成 batch 后一起处理。
+
+---
+
+## 12.5 Extract 的成本
+
+`Extract(k)` 必须找到所有具有指定 key 的元素。
+
+论文利用 x-box 的 `Search` 定位第一个 occurrence，并通过扫描和 fractional cascading pointers 访问其他匹配元素。
+
+如果最终返回：
+
+$$
+K
+$$
+
+个元素，那么仅输出这些元素本身就需要：
+
+$$
+O(K/B)
+$$
+
+I/Os。
+
+论文最终得到：
+
+$$
+O\left(
+\frac{\lambda^{\frac{\alpha}{1+\alpha}}}{B}
+\log_{\lambda/B}
+\frac NB
++
+\frac KB
+\right)
+$$
+
+amortized I/Os。
+
+令：
+
+$$
+\varepsilon
+===========
+
+\frac{\alpha}{1+\alpha},
+$$
+
+可以写成：
+
+$$
+O\left(
+\frac{\lambda^\varepsilon}{B}
+\log_{\lambda/B}
+\frac NB
++
+\frac KB
+\right).
+$$
+
+BRT 总空间为：
+
+$$
+O(N/B)
+$$
+
+blocks。
+
+---
+
+## 12.6 与已有 BRT 的比较
+
+此前 BRT 的典型复杂度为：
+
+$$
+O\left(
+\frac1B\log_2\frac NB
+\right)
+$$
+
+的 Insert，以及：
+
+$$
+O\left(
+\log_2\frac NB+\frac KB
+\right)
+$$
+
+的 Extract。
+
+本文最重要的改进是把这种 base-2 logarithm 替换为由 $\lambda$ 控制的外存友好层级：
+
+$$
+\log_{\lambda/B}\frac NB.
+$$
+
+在 cache-aware 情况下可以取：
+
+$$
+\lambda=O(M),
+$$
+
+从而得到与：
+
+$$
+\log_{M/B}\frac NB
+$$
+
+相关的 sorting-style logarithm。
+
+---
+
+## 12.7 与 priority queue 的关系
+
+本文两个数据结构贡献具有相似的非对称设计：
+
+```text
+Priority Queue:
+
+Update       → cheap batched modification
+ExtractMin   → more expensive query
+
+
+BRT:
+
+Insert       → cheap batched modification
+Extract(key) → more expensive query
+```
+
+它们都把可以延迟的修改操作通过 buffer 批量处理，而把更多工作推迟到真正需要得到查询结果的时候。
+
+在后续图算法中：
+
+* priority queue 决定下一步处理哪个 vertex；
+* BRT 按 vertex key 提取相关记录，并帮助判断节点是否已经被处理。
+
+因此只改进 priority queue 还不够。
+
+只有 priority queue 和 BRT 的 I/O 成本都降低后，SSSP、DFS 和 BFS 才能进一步达到本文后面给出的 dense-graph I/O bound。
+
+---
+
+# 13. 图算法应用
+
+本文的数据结构改进最终被用于 directed SSSP、DFS 和 BFS。
+
+这里的图算法本身主要沿用已有 external-memory algorithms；本文的贡献是用新的 priority queue 和 BRT 替换已有数据结构，并由此改善整体 I/O bound。
+
+---
+
+## 13.1 Directed SSSP
+
+对于具有 $V$ 个节点、$E$ 条正权有向边的图，已有 external-memory SSSP algorithm 同时使用：
+
+* priority queue；
+* BRT。
+
+priority queue 负责维护 tentative distance，而 BRT 用于按 vertex key 处理相关记录并避免大量随机访问。
+
+论文给出的操作次数为：
+
+| 数据结构 | 操作 | 调用次数 |
+| -------------- | ------------ | ---: |
+| Priority Queue | `Update` | $E$ |
+| Priority Queue | `ExtractMin` | $V$ |
+| BRT | `Insert` | $E$ |
+| BRT | `Extract` | $V$ |
+
+这一操作分布正好适合本文提出的非对称数据结构。
+
+---
+
+### 13.1.1 Priority queue 部分
+
+令：
+
+$$
+L=
+\log_{\lambda/B}\frac EB.
+$$
+
+priority queue 的一次 Update 需要：
+
+$$
+O\left(
+\frac1B L
+\right)
+$$
+
+amortized I/Os。
+
+因此 $E$ 次 Update 共需要：
+
+$$
+O\left(
+\frac EB L
+\right).
+$$
+
+另一方面，一次 ExtractMin 的成本为：
+
+$$
+O\left(
+\left\lceil
+\frac{\lambda^\varepsilon}{B}L
+\right\rceil L
+\right).
+$$
+
+执行 $V$ 次后得到：
+
+$$
+O\left(
+\frac{V\lambda^\varepsilon}{B}L^2
++
+VL
+\right).
+$$
+
+---
+
+### 13.1.2 BRT 部分
+
+BRT 同样执行：
+
+$$
+E
+$$
+
+次便宜的 Insert 和：
+
+$$
+V
+$$
+
+次较贵的 Extract。
+
+$E$ 次 Insert 总成本为：
+
+$$
+O\left(
+\frac EB L
+\right).
+$$
+
+Extract 还具有输出相关的 $K/B$ 项，但 BRT 中的记录在 Extract 后被删除，因此所有 Extract 的输出总量可以在 $O(E)$ 个记录上分摊。
+
+综合后，BRT 不会产生超过最终主项的新渐近因子。
+
+---
+
+### 13.1.3 总复杂度
+
+因此 SSSP 的主要 I/O 成本可以整理为：
+
+$$
+O\left(
+\frac{V\lambda^\varepsilon}{B}L^2
++
+VL
++
+\frac EB L
+\right),
+$$
+
+其中：
+
+$$
+L=
+\log_{\lambda/B}\frac EB.
+$$
+
+这条式子直接体现了本文设计 priority queue 时采用非对称 tradeoff 的原因：
+
+```text id="zn7ka6"
+E 次 Update / Insert
+        ↓
+设计得非常便宜
+
+
+V 次 ExtractMin / Extract
+        ↓
+允许承担更高成本
+```
+
+对于 dense graph：
+
+$$
+E\gg V,
+$$
+
+这种 tradeoff 特别有利。
+
+---
+
+### 13.1.4 Dense graph 下的结果
+
+在 cache-aware 模型中取：
+
+$$
+\lambda=O(M),
+$$
+
+并考虑满足：
+
+$$
+E=\Omega(V^{1+\delta}),
+\qquad \delta>0,
+$$
+
+以及：
+
+$$
+V=\Omega(M)
+$$
+
+的 sufficiently dense graphs。
+
+论文证明可以选择合适参数，使与 $V$ 次昂贵查询有关的项被 $E$ 次便宜更新产生的项吸收。
+
+最终得到：
+
+$$
+O\left(
+\frac EB
+\log_{M/B}\frac EB
+\right)
+$$
+
+I/Os。
+
+这与 external memory 中排序 $E$ 个值的：
+
+$$
+\operatorname{Sort}(E)
+$$
+
+复杂度相同，因此在这一参数范围内达到 I/O-optimal。
+
+---
+
+### 13.1.5 应用结果的意义
+
+本文并不是通过重新设计 shortest-path relaxation 规则获得这一改进。
+
+真正的变化是：
+
+```text id="v14v2z"
+已有 external-memory SSSP
+          ↓
+替换数据结构
+          ↓
+new priority queue + new BRT
+          ↓
+降低大量 Update / Insert 的成本
+          ↓
+改善整个 SSSP I/O bound
+```
+
+SSSP 也解释了为什么本文选择：
+
+> 优先优化 `Update`，即使代价是 `ExtractMin` 变得更贵。
+
+因为图算法中通常有：
+
+$$
+E
+$$
+
+次 edge-related updates，却只有：
+
+$$
+V
+$$
+
+次 vertex-related extractions。
+
+对于 dense graph，$E$ 和 $V$ 之间的巨大数量差异使这种非对称 tradeoff 能够带来整体收益。
+
+---
+
+## 13.2 Directed DFS and BFS
+
+本文还将新的 priority queue 和 BRT 应用于 directed DFS 和 BFS。
+
+算法框架来自 Buchsbaum 等人的 external-memory graph traversal algorithm。本文并没有重新设计 DFS/BFS 的遍历规则，而是使用新的数据结构降低已有框架中的 I/O 成本。
+
+---
+
+### 13.2.1 BRT 如何避免逐边访问 visited array
+
+普通 DFS/BFS 在检查边：
+
+$$
+(u,v)
+$$
+
+时，需要判断 $v$ 是否已经被发现。
+
+如果在外存中直接随机读取：
+
+```text
+visited[v]
+```
+
+则可能产生接近 $E$ 次随机 I/O。
+
+已有 external-memory traversal algorithm 使用 BRT 解决这一问题。
+
+当 vertex $v$ 第一次被发现时，将它的 incoming edges：
+
+$$
+(x,v)
+$$
+
+以 source vertex $x$ 为 key 插入 BRT。
+
+之后再次处理 vertex $u$ 时，执行：
+
+$$
+\operatorname{Extract}(u)
+$$
+
+即可一次得到所有从 $u$ 指向已经 discovered vertices 的边。
+
+因此：
+
+```text
+逐边 visited 查询
+        ↓
+转换为
+        ↓
+按 source key 的 BRT batch extraction
+```
+
+DFS 随后从剩余 outgoing edges 中选择下一条尚未探索的边；BFS 使用相同的基本思想，只是 traversal frontier 从 stack 改为 queue。
+
+---
+
+### 13.2.2 本文使用的操作计数
+
+本文第 5.2 节直接采用 Buchsbaum 等人的 traversal framework。
+
+在本文的复杂度分析中，priority queue 和 BRT 都保存 $O(E)$ 规模的数据，并产生：
+
+| 数据结构 | 操作 | 调用次数 |
+| -------------- | ------------ | ---: |
+| Priority Queue | `Insert` | $E$ |
+| Priority Queue | `ExtractMin` | $2V$ |
+| BRT | `Insert` | $E$ |
+| BRT | `Extract` | $2V$ |
+
+因此与 SSSP 类似，DFS/BFS 同样具有：
+
+$$
+O(E)
+$$
+
+次便宜修改操作，以及：
+
+$$
+O(V)
+$$
+
+次较昂贵查询操作。
+
+这正好匹配本文 priority queue 和 BRT 的 asymmetric tradeoff。
+
+---
+
+### 13.2.3 I/O bound
+
+令：
+
+$$
+L=
+\log_{\lambda/B}\frac EB.
+$$
+
+$E$ 次 priority-queue Insert 和 $E$ 次 BRT Insert 总体产生：
+
+$$
+O\left(
+\frac EB L
+\right)
+$$
+
+量级的成本。
+
+$2V$ 次 ExtractMin 的主要成本为：
+
+$$
+O\left(
+\frac{V\lambda^\varepsilon}{B}L^2
++
+VL
+\right).
+$$
+
+BRT 的 $2V$ 次 Extract 不产生更大的渐近主项。
+
+因此总复杂度为：
+
+$$
+O\left(
+\frac{V\lambda^\varepsilon}{B}L^2
++
+VL
++
+\frac EB L
+\right).
+$$
+
+论文设置：
+
+$$
+\lambda=O(E/V)
+$$
+
+后，得到：
+
+$$
+O\left(
+\frac{
+V^{\frac1{1+\alpha}}
+E^{\frac{\alpha}{1+\alpha}}
+}{B}
+\log^2_{E/(VB)}
+\frac EB
++
+V\log_{E/(VB)}
+\frac EB
++
+\frac EB
+\log_{E/(VB)}
+\frac EB
+\right)
+$$
+
+cache-oblivious I/Os。
+
+这一 bound 与前面的 SSSP 结果具有相同形式。
+
+---
+
+### 13.2.4 为什么 DFS、BFS 和 SSSP 能得到相同形式的结果
+
+三个算法解决的问题不同，但从本文的数据结构角度看，它们具有相似的操作分布：
+
+```text
+大量 edge-related operations:
+        O(E)
+        ↓
+Update / Insert
+        ↓
+cheap
+
+
+较少 vertex-related queries:
+        O(V)
+        ↓
+ExtractMin / Extract
+        ↓
+more expensive
+```
+
+因此，当图足够 dense、即：
+
+$$
+E\gg V,
+$$
+
+本文把成本从修改操作转移到查询操作的设计可以降低整个 graph algorithm 的 I/O 数量。
+
+在 cache-aware 模型中取：
+
+$$
+\lambda=O(M),
+$$
+
+并满足论文给出的 dense-graph 条件时，SSSP、DFS 和 BFS 都达到：
+
+$$
+O\left(
+\frac EB
+\log_{M/B}\frac EB
+\right)
+=======
+
+O(\operatorname{Sort}(E))
+$$
+
+I/Os。
+
+因此这些 graph applications 的意义并不只是“给数据结构找一个应用”，而是验证了本文的核心设计选择：
+
+> **对于 $E$ 次更新但只有 $O(V)$ 次查询的 dense-graph workload，优先降低 Update/Insert 的代价，比要求所有 priority-queue operations 都具有相同复杂度更有效。**
+
+---
+
+# 14. Critical Evaluation
+
+经过前面的结构和复杂度分析，我认为本文最重要的贡献并不只是提出了新的 x-treap，而是重新选择了 external-memory priority queue with `DecreaseKey` 的优化目标。
+
+已有 lower-bound work 已经表明，支持 `DecreaseKey` 确实会带来额外困难。因此本文没有继续追求所有操作具有相同复杂度，而是采用 asymmetric tradeoff：
+
+* 将频繁发生的 `Update` 优化到 sorting-style 的 I/O complexity；
+* 允许 `ExtractMin` 和 `Delete` 承担更高成本。
+
+这一选择最终与 dense graph algorithms 中的操作分布相匹配。
+
+---
+
+## 14.1 我认为本文最强的地方
+
+在 SSSP 中，大约有：
+
+$$
+E
+$$
+
+次 `Update`，但只有：
+
+$$
+V
+$$
+
+次 `ExtractMin`。
+
+DFS/BFS 同样具有 $O(E)$ 次修改和 $O(V)$ 次较贵查询。
+
+因此对于：
+
+$$
+E\gg V
+$$
+
+的 dense graphs，把成本从 Update/Insert 转移到 ExtractMin/Extract 是有实际意义的。
+
+本文形成了一条比较完整的设计链：
+
+```text id="ig6b00"
+DecreaseKey 存在额外代价
+        ↓
+选择 asymmetric tradeoff
+        ↓
+Update / Insert 主要通过 batching 处理
+        ↓
+高成本转移到 query
+        ↓
+dense graph 中 E >> V
+        ↓
+整体 graph I/O 降低
+```
+
+我认为这比单独看某个 operation bound 更能体现本文的技术价值。
+
+另一个优点是，本文并没有只优化 priority queue。
+
+如果 BRT 仍然保持原来的较高开销，它可能成为新的 graph-algorithm bottleneck。本文同时改进 BRT，使两个 $O(E)$ 级修改来源都能够利用 batching。
+
+---
+
+## 14.2 主要限制
+
+本文的数据结构并不是对所有 workloads 都更好。
+
+首先，`ExtractMin` 和 `Delete` 明显比 `Update` 更昂贵。
+
+因此，当：
+
+$$
+E=\Theta(V)
+$$
+
+或者应用本身具有大量 extraction/query 时，本文的 asymmetric tradeoff 就不再具有 dense-graph 场景下那么明显的优势。
+
+这也是为什么论文最终的 I/O-optimal graph result 明确限制在 sufficiently dense graphs，例如 cache-aware 结果要求：
+
+$$
+E=\Omega(V^{1+\varepsilon})
+$$
+
+以及：
+
+$$
+V=\Omega(M).
+$$
+
+因此不能把论文结果简单理解成“所有 directed SSSP、DFS 和 BFS 都达到 sorting bound”。
+
+其次，priority queue 的空间复杂度为：
+
+$$
+O\left(
+\frac NB
+\log_{M/B}\frac NB
+\right)
+$$
+
+blocks，而不是理想的 $O(N/B)$ linear space。
+
+此外，本文主要给出 amortized I/O bounds。单次 `Flush-Up` 或 `Flush-Down` 仍可能移动较大规模的数据，因此这一结果不能直接转化成稳定的 worst-case operation latency。
+
+最后，x-treap 的实现本身非常复杂。它需要递归 buffers、front/rear、多个辅助操作、temporary structures 和 ghost handling。论文主要证明理论 I/O bounds，没有通过工程实验说明这些渐近优势在实际存储设备上的常数代价。
+
+---
+
+## 14.3 与其他 DecreaseKey priority queues 的关系
+
+2017 年的 lower-bound result 表明，支持 `DecreaseKey` 时出现性能退化并不是已有结构设计不够好这么简单，而是问题本身存在理论限制。
+
+因此本文并没有“打破”这个 lower bound，而是选择重新分配不同操作之间的成本。
+
+同期 Jiang 和 Larsen 的工作采取了另一种路线：他们给出 randomized structure，使包含 `DecreaseKey` 在内的 priority-queue operations 获得较均衡的 expected amortized 改进。
+
+相比之下，本文更加极端地优先优化 `Update`。
+
+因此两类结果适合不同 workload：
+
+```text id="qoj2h1"
+operation mix 较均衡
+        ↓
+balanced improvement 更自然
+
+
+大量 Update
+少量 ExtractMin
+        ↓
+本文 asymmetric tradeoff 更有吸引力
+```
+
+dense graph algorithms 正好属于后一种情况。
+
+---
+
+## 14.4 后续工作的视角
+
+后续 external-memory priority-queue work 也说明，比较结果时必须注意 operation set。
+
+例如 2025 年的 *External-Memory Priority Queues with Optimal Insertions* 将 Insert 改进到：
+
+$$
+O(1/B)
+$$
+
+amortized I/Os，同时保持高效 DeleteMin。
+
+但该结果不支持 `DecreaseKey`，因此并不能直接替代本文针对 `DecreaseKey` 的结果。
+
+类似地，后续工作还探索了更加 adaptive 的 external-memory update/query tradeoff。这说明如何在不同操作之间分配 I/O 成本仍然是这一领域的重要问题，而不是存在一个结构可以简单支配所有其他方案。
+
+---
+
+## 14.5 总体评价
+
+我认为本文最 unusual、也最有价值的思想是：
+
+> **主动设计一个不平衡的 priority queue，并让这种不平衡与应用中的操作频率相匹配。**
+
+本文的结果不应该被理解为一个在所有情况下都更好的 priority queue。
+
+更准确地说，它展示了：
+
+> 当应用具有大量更新而只有较少查询时，可以通过 batching 和延迟处理把更多成本转移到查询操作，从而得到更低的整体 I/O complexity。
+
+x-treap、BRT 和 dense graph applications 最终都服务于这一核心思想。
+
+这使本文的贡献不仅是一个新的数据结构，也提供了一个比较有启发性的 data-structure design principle：
+
+> **优化一个数据结构时，不一定需要让所有操作同时变快；更重要的是让 operation tradeoff 与目标应用的 workload 相匹配。**
