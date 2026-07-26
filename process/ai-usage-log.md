@@ -292,3 +292,198 @@ Before a technical claim is retained in the final review, the relevant source mu
 * restrictions on graph density or graph type.
 
 The collected sources have not all been read in full at this stage. Their inclusion in `source-map.md` records their relevance and availability, not the completion of a full technical review.
+
+---
+
+## 2026-07-22 — x-treap Structure and Operations Study
+
+### Study Focus
+
+This stage focused on understanding the technical core of the paper rather than only recording its final complexity results.
+
+The main questions investigated during reading were:
+
+* why the x-treap uses a recursive layout instead of a conventional sequence of exponentially growing buffers;
+* how key order and priority order are represented simultaneously;
+* why every main buffer is divided into front and rear parts;
+* how recursive subtreaps divide the key space;
+* what role each of the five structural invariants plays;
+* how delayed `DecreaseKey` operations can coexist with multiple physical copies of the same key;
+* how representative elements and ghost elements should be distinguished;
+* how elements move upward or downward while the structure maintains its logical priority-queue semantics.
+
+The study then continued from the static structure to the dynamic operations:
+
+* `Resolve`;
+* `Flush-Up`;
+* `Flush-Down`;
+* `Initialize`;
+* `Split`;
+* `Batched-Insert`;
+* `Batched-ExtractMin`.
+
+The goal was to connect each operation to a specific structural problem rather than treating the pseudocode as an isolated sequence of steps.
+
+### AI Assistance
+
+ChatGPT was used as an interactive aid while working through these questions.
+
+The main uses included:
+
+* discussing alternative interpretations of the x-treap layout and checking which interpretation was consistent with the paper;
+* explaining the distinction between the key dimension and the priority dimension;
+* constructing small examples to test understanding of front/rear buffers and duplicate keys;
+* answering questions about why individual invariants are necessary;
+* explaining how `Resolve`, `Flush-Up`, and `Flush-Down` interact with those invariants;
+* helping trace the movement of an element through the recursive structure;
+* discussing the purpose of constants and thresholds appearing in the operations, such as the fractions used by `Flush-Up` and `Flush-Down`;
+* relating `Split` and `Initialize` to the maintenance of key ranges;
+* connecting the internal auxiliary operations to the two batched interfaces;
+* helping reorganize the resulting understanding into coherent technical explanations for the review.
+
+The interaction was mainly organized around specific questions arising from the paper, with the full version of the paper used to check the resulting interpretation.
+
+### Technical Verification
+
+The full version of the target paper was used to verify the main structural and algorithmic details discussed during this stage.
+
+Items checked included:
+
+* the capacities of the top, middle, and bottom buffers;
+* the scale of recursive $\sqrt{x}$-treaps;
+* the maximum numbers of upper- and lower-level subtreaps;
+* the five x-treap invariants;
+* the base-case condition involving $\lambda$;
+* the distinction between representative elements and physical copies;
+* the role of ghost elements;
+* the behavior of `Resolve`;
+* the recursive structure of `Flush-Up`;
+* the $1/6$, $1/3$, and $2/3$ thresholds appearing in `Flush-Down`;
+* the roles of `Initialize` and `Split`;
+* the main control flow of `Batched-Insert`;
+* the use of `Flush-Up` by `Batched-ExtractMin`.
+
+Several explanations were revised after comparison with the original paper. In particular, high-level intuition such as “elements move downward and later upward” was kept separate from stronger claims about the exact path of an individual element.
+
+### Review and Formatting Check
+
+The complete `review.md` was also checked during this stage for technical and Markdown issues.
+
+This included:
+
+* checking displayed mathematical expressions for KaTeX/Markdown syntax problems;
+* correcting several formulas whose line breaks caused rendering problems;
+* correcting the representation of $D.\mathrm{rep}$;
+* checking heading levels;
+* revising the description of representative and ghost elements;
+* correcting the cache-aware base-case discussion involving $\lambda$;
+* checking terminology and notation for consistency across the earlier and newly added sections.
+
+The corrections were incorporated into the working review before continuing to the operation analysis.
+
+---
+
+## 2026-07-23 — Correctness and Complexity Verification
+
+### Questions Investigated
+
+After completing the x-treap operations, the next reading stage focused on several questions that were not clear from the pseudocode alone:
+
+* What exactly is preserved when several physical copies of the same key remain in the structure?
+* Why does keeping only the minimum-priority version give the correct logical priority-queue semantics?
+* Which invariants are actually required for the correctness of `Batched-ExtractMin`?
+* Why does `Flush-Up` expose the correct minimum-priority representatives?
+* Why is the hash table required in addition to local duplicate removal?
+* What future work is the potential function paying for?
+* Why is upward movement more expensive than downward batching?
+* How do the internal x-treap bounds lead to the final cache-aware priority-queue bounds?
+
+### AI Assistance
+
+ChatGPT was used to discuss these questions during the reading process.
+
+The assistance included:
+
+* clarifying the distinction between physical copies, representatives, and ghosts;
+* constructing small examples to test the representative semantics;
+* tracing the dependency from the x-treap invariants to `Flush-Up` and `Batched-ExtractMin`;
+* explaining the role of the hash table in filtering old copies after `ExtractMin` or `Delete`;
+* interpreting the potential function as accounting for future structural work rather than treating it only as a formal expression;
+* discussing why batching gives approximately $O(1/B)$ per-element movement cost;
+* checking the relationship between $\alpha$ and $\varepsilon$;
+* checking algebraic transitions used to obtain the final operation bounds;
+* comparing interpretations with the full version of the paper when details were unclear.
+
+The resulting reasoning was then organized into the correctness and amortized-complexity sections of the review.
+
+---
+
+## 2026-07-24 — BRT and Graph-Algorithm Cross-Checking
+
+### Questions Investigated
+
+The graph-application stage raised a different set of questions:
+
+* Why is a BRT needed if the priority queue has already been improved?
+* Is the BRT based on the x-treap or on the earlier x-box?
+* What exactly does `Extract(k)` return?
+* Why does its complexity contain an output term $K/B$?
+* How many priority-queue and BRT operations are performed by the SSSP algorithm?
+* Why is the difference between $E$ edge-related operations and $V$ vertex-related operations important?
+* How does BRT premarking work in the DFS/BFS framework?
+* Which parts of the graph algorithms come from previous work and which parts are new in the target paper?
+* Why should the cache-aware and cache-oblivious density conditions be treated separately?
+
+### AI Assistance
+
+ChatGPT was used mainly for explanation, source cross-checking, and consistency checks.
+
+The assistance included:
+
+* distinguishing the x-box used by the BRT from the x-treap used by the priority queue;
+* explaining the BRT interface and the output-sensitive term in `Extract`;
+* checking the operation counts stated by the target paper for SSSP, DFS, and BFS;
+* tracing the SSSP complexity calculation from the operation counts to the final bound;
+* explaining why the asymmetric data-structure tradeoff becomes useful when $E\gg V$;
+* discussing the premarking mechanism used by the earlier BRT graph-traversal framework;
+* distinguishing details inherited from earlier graph algorithms from the new data-structure contribution of the target paper;
+* checking the interpretation of the dense-graph assumptions;
+* checking that graph-algorithm claims remained consistent with the statements in the target paper rather than being inferred from a simplified Dijkstra/DFS/BFS description.
+
+This stage helped connect the previously studied data structures to their intended applications instead of treating the graph results as independent corollaries.
+
+---
+
+## 2026-07-26 — Critical Evaluation and Related-Result Verification
+
+### Questions Investigated
+
+After the main technical analysis was complete, the next step was to evaluate the paper rather than only summarize it.
+
+The questions considered included:
+
+* Is it accurate to say that the paper breaks the previous `DecreaseKey` lower bound?
+* What is the real benefit of deliberately making `ExtractMin` more expensive?
+* Under what workloads does this tradeoff stop being attractive?
+* How important is the dense-graph assumption?
+* What additional space or implementation costs are hidden behind the improved Update bound?
+* How does the result differ from the contemporaneous Jiang–Larsen priority queue?
+* Can later insertion-optimized priority queues be considered direct replacements?
+* Which statements are direct conclusions from cited work and which are interpretation or evaluation?
+
+### AI Assistance
+
+ChatGPT was used to challenge and verify the evaluation developed from the preceding technical analysis.
+
+The assistance included:
+
+* checking that the relationship to the earlier `DecreaseKey` lower bound was described as a tradeoff rather than as a violation of the lower bound;
+* comparing the operation objectives of the target paper and the Jiang–Larsen result;
+* checking the operation sets of later external-memory priority queues before making comparisons;
+* identifying cases where a later result improves `Insert` but does not support `DecreaseKey`;
+* checking whether stated limitations followed from the paper's complexity, space, or model assumptions;
+* distinguishing direct technical facts from personal evaluation;
+* identifying wording that could overstate the generality or superiority of the target paper;
+* helping organize the final evaluation around workload-aware data-structure design.
+
+The main conclusion retained in the review is that the target paper should be evaluated as an asymmetric structure designed for update-heavy workloads, rather than as a uniform replacement for all external-memory priority queues.
