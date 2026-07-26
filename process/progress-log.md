@@ -572,3 +572,282 @@ The planned questions are:
 3. why the elements returned through the top front are valid minimum representative elements.
 
 After correctness, the project will move to the amortized I/O complexity analysis.
+
+---
+
+## 2026-07-23 — Correctness and Amortized Complexity Analysis
+
+### Goal
+
+After completing the structure and operations of the x-treap, the next stage focused on understanding why the data structure is both logically correct and able to achieve the claimed amortized I/O bounds.
+
+The main questions were:
+
+* how multiple physical copies of the same key can coexist without changing the logical priority-queue state;
+* how representative elements are defined and maintained;
+* why ghost elements do not cause an extracted or deleted key to be returned again;
+* which x-treap invariants are directly responsible for `ExtractMin` correctness;
+* why `Flush-Up` exposes the correct minimum-priority representatives;
+* why the complicated recursive movement of elements still has a bounded amortized I/O cost.
+
+### Correctness Analysis
+
+Completed the correctness analysis of the x-treap and the complete priority queue.
+
+The argument was organized around three levels:
+
+1. **Representative semantics**
+   Multiple physical versions of a key may coexist, but only the version with minimum priority represents the logical element.
+
+2. **Structural invariants**
+   `Resolve` and the other auxiliary operations restore the key-order and priority-order invariants required by the x-treap.
+
+3. **Minimum extraction**
+   Invariants 2 and 3 establish the priority ordering needed by `Flush-Up`. Once the minimum representatives have been exposed in the top front buffer, `Batched-ExtractMin` can return them correctly.
+
+The analysis also connected the single x-treap to the complete priority queue.
+
+The role of the hash table $X$ was clarified: keys already removed by `ExtractMin` or `Delete` are recorded so that old physical copies that later reappear can be recognized as ghosts and discarded.
+
+### Amortized Complexity
+
+The next step was to study why repeated flushing and recursive movement do not cause the I/O cost to grow uncontrollably.
+
+The main idea developed was that batching gives a basic per-element cost of approximately:
+
+$$
+O(1/B)
+$$
+
+when a scan or merge involving $\Theta(C)$ elements costs $O(C/B)$ I/Os.
+
+However, simply counting downward and upward moves is not sufficient because elements may move multiple times. The paper therefore uses a potential-function analysis.
+
+The potential was interpreted as prepaid I/O work associated with:
+
+* buffers approaching underflow or overflow;
+* elements that still have several recursive levels to traverse;
+* future `Flush-Up` operations;
+* propagation between the different x-treaps of the complete priority queue;
+* future processing of ghost elements.
+
+This made it possible to connect the internal asymmetric movement of the x-treap to its final asymmetric operation bounds.
+
+### Main Result Understood
+
+For the cache-aware structure, setting $\lambda=O(M)$ gives:
+
+$$
+O\left(
+\frac1B
+\log_{M/B}\frac NB
+\right)
+$$
+
+amortized I/Os for `Update`.
+
+For `ExtractMin` and `Delete`, the bound is:
+
+$$
+O\left(
+\left\lceil
+\frac{M^\varepsilon}{B}
+\log_{M/B}\frac NB
+\right\rceil
+\log_{M/B}\frac NB
+\right).
+$$
+
+The main conceptual conclusion from this stage was that the final formulas reflect the actual data flow of the structure:
+
+* updates mainly propagate downward through cheap batching;
+* minimum extraction requires the more expensive upward restoration of candidates.
+
+---
+
+## 2026-07-24 — Buffered Repository Tree and Graph Applications
+
+### Goal
+
+After understanding the priority queue itself, the next stage investigated how the data-structure result is used in the graph algorithms claimed by the paper.
+
+An important observation was that improving the priority queue alone is not sufficient. Existing external-memory graph algorithms also rely on a Buffered Repository Tree (BRT), which can become a second bottleneck.
+
+### Buffered Repository Tree
+
+Studied the BRT and its role in graph algorithms.
+
+The BRT stores a multiset and supports:
+
+* `Insert(e)`;
+* `Extract(k)`, which returns and removes every stored element with key $k$.
+
+A key distinction was established between the two recursive structures used in the paper:
+
+* the new priority queue is based on the **x-treap**;
+* the improved BRT is based on the earlier **x-box**.
+
+The BRT analysis covered:
+
+* batched insertion;
+* search by key;
+* output-sensitive $K/B$ cost;
+* doubly increasing x-box sizes;
+* the use of fractional-cascading pointers;
+* the improved Insert and Extract bounds.
+
+This showed that the BRT follows a similar asymmetric principle: insertions are delayed and batched, while queries perform more of the required search work.
+
+### SSSP Application
+
+The directed SSSP application was then analyzed through the operation counts of the existing external-memory algorithm.
+
+The algorithm uses:
+
+* $E$ priority-queue `Update` operations;
+* $V$ priority-queue `ExtractMin` operations;
+* $E$ BRT `Insert` operations;
+* $V$ BRT `Extract` operations.
+
+This operation distribution explains why the new asymmetric structures are useful.
+
+For dense graphs:
+
+$$
+E\gg V,
+$$
+
+so the operations executed once per edge are significantly more frequent than the expensive operations executed once per vertex.
+
+The graph analysis therefore gave a concrete interpretation of the priority-queue design:
+
+> reducing the cost of the $E$ update-like operations can compensate for increasing the cost of the $V$ extraction-like operations.
+
+### DFS and BFS Applications
+
+The DFS/BFS analysis followed the external-memory traversal framework of Buchsbaum et al.
+
+The role of BRT premarking was studied in more detail.
+
+When a vertex $v$ is discovered, its incoming edges $(x,v)$ are inserted into the BRT using $x$ as the key. Later, when processing $x$, `Extract(x)` reports outgoing edges whose destination has already been discovered.
+
+This replaces many direct random accesses to a `visited` array with batched BRT operations.
+
+For the complexity analysis, the target paper uses:
+
+* $E$ priority-queue `Insert` operations;
+* $2V$ priority-queue `ExtractMin` operations;
+* $E$ BRT `Insert` operations;
+* $2V$ BRT `Extract` operations.
+
+Thus SSSP, DFS, and BFS all exhibit essentially the same asymmetry:
+
+$$
+O(E)
+$$
+
+modification operations versus:
+
+$$
+O(V)
+$$
+
+more expensive query operations.
+
+### Dense-Graph Result
+
+The analysis was connected to the final cache-aware result.
+
+For sufficiently dense graphs satisfying the paper's conditions, including:
+
+$$
+E=\Omega(V^{1+\varepsilon})
+$$
+
+and
+
+$$
+V=\Omega(M),
+$$
+
+the vertex-dependent expensive-query terms can be absorbed into the edge-dependent terms.
+
+The resulting I/O complexity is:
+
+$$
+O\left(
+\frac EB
+\log_{M/B}\frac EB
+\right),
+$$
+
+which matches the external-memory sorting bound for $E$ items.
+
+---
+
+## 2026-07-26 — Critical Evaluation
+
+### Goal
+
+After completing the main technical analysis, the project moved from explaining the paper to evaluating its design choices and limitations.
+
+### Main Strength Identified
+
+The central design decision was interpreted as a workload-aware asymmetric tradeoff.
+
+Earlier lower-bound results indicate that supporting `DecreaseKey` introduces an unavoidable difficulty. Instead of attempting to make all priority-queue operations equally cheap, this paper makes `Update` particularly inexpensive while allowing `ExtractMin` and `Delete` to become more expensive.
+
+The graph applications show why this can be useful:
+
+$$
+E
+$$
+
+edge-related modifications occur much more frequently than:
+
+$$
+O(V)
+$$
+
+vertex-related queries in dense graphs.
+
+The priority queue and BRT therefore move cost away from the operations that occur most frequently.
+
+### Limitations Identified
+
+Several limitations were recorded.
+
+* The improvement is workload dependent. It becomes less attractive when updates and extractions occur at similar frequencies.
+* The I/O-optimal graph result applies to sufficiently dense graphs rather than arbitrary directed graphs.
+* The priority queue requires more than linear block space.
+* The guarantees are amortized rather than worst-case per operation.
+* The x-treap is substantially more complicated to implement than conventional priority queues.
+* The paper is primarily theoretical and does not provide an engineering evaluation showing whether the asymptotic improvement dominates implementation constants on real storage hardware.
+
+### Comparison with Other Work
+
+The result was compared with the earlier `DecreaseKey` lower bound and the contemporaneous Jiang–Larsen priority queue.
+
+The main conclusion was that these results should not be treated as a simple ranking of data structures. They optimize different operation tradeoffs.
+
+Later priority-queue work was also checked with attention to the supported operation set. In particular, faster insertion results that do not support `DecreaseKey` are not direct replacements for the priority queue studied here.
+
+### Current Assessment
+
+The overall assessment developed during this stage is:
+
+> The paper is not best understood as a priority queue that uniformly dominates previous structures. Its main contribution is showing that an intentionally asymmetric operation tradeoff can be advantageous when it matches the workload of the target application.
+
+This connects the lower-bound motivation, x-treap design, BRT improvement, and dense-graph applications into one coherent argument.
+
+### Next Stage
+
+The main technical sections of the review are now substantially complete.
+
+The next work should focus on:
+
+* checking the review against the course requirements;
+* identifying missing proof, citation, or contribution statements;
+* checking consistency of notation and terminology;
+* improving the conclusion and overall narrative;
+* preparing the review for final submission and possible oral questioning.
