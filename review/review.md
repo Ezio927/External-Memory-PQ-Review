@@ -92,7 +92,7 @@ $$
 
 作者明确指出，这是第一个在 cache-aware 设置下以最优 I/O 复杂度支持
 `Update`，从而支持 `DecreaseKey`，同时仍然以 I/O 最优复杂度支持
-`Insert` 的优先队列。
+`Insert` 的优先队列。[1]
 
 这一改进的代价是 `ExtractMin` 和 `Delete` 不再保持最优 I/O 复杂度。
 
@@ -265,6 +265,7 @@ O\left(
 \right).
 $$
 
+这一结果是本文针对 sufficiently dense directed graphs 给出的主要图算法应用结论。[1]
 这一复杂度与在外存中排序 $E$ 个元素的 I/O 最优复杂度处于相同量级。
 
 **需要强调的是：**这一最优性结论针对论文所规定的稠密图条件，并不是说本文对所有规模和稠密程度的图都得到了相同的最优界。
@@ -299,9 +300,39 @@ $$
 * 数据主要存储在外存中；
 * 算法的目标是尽可能减少主存和外存之间的数据块传输次数。
 
-由于本文的数据结构显式使用参数 $M$ 和 $B$，因此本文正式版本中的主要数据结构属于 **cache-aware** 数据结构。
+本文的完整版本首先在 **cache-oblivious external memory model** 中构造参数化的 priority queue。数据结构使用一个由用户选择的参数
 
-也就是说，算法在设计时知道主存大小和数据块大小，并利用这些参数决定缓冲区和递归结构的规模。
+$$
+\lambda\in[2,N],
+$$
+
+其复杂度可以写为以 $\lambda/B$ 为底的形式，而结构本身并不要求根据具体的主存大小 $M$ 来调整布局。[2]
+
+在 **cache-aware** 设置下，如果允许算法利用主存大小，则可以选择
+
+$$
+\lambda=O(M),
+$$
+
+从而把相应的复杂度写成以 $M/B$ 为底的形式。例如 `Update` 的摊还 I/O 复杂度由
+
+$$
+O\left(
+\frac1B
+\log_{\lambda/B}\frac NB
+\right)
+$$
+
+得到
+
+$$
+O\left(
+\frac1B
+\log_{M/B}\frac NB
+\right).
+$$
+
+因此，本文需要区分两个层次：x-treap 的参数化构造可以在 cache-oblivious 模型中使用，而论文所强调的 I/O-optimal `Update` 结果也可以通过在 cache-aware 设置下令 $\lambda=O(M)$ 得到。[1][2]
 
 ---
 
@@ -392,7 +423,7 @@ $$
 
 ## 3.4 Sort 复杂度
 
-对于 $x$ 个元素，外存排序的最优 I/O 复杂度通常记为：
+对于 $x$ 个元素，外存排序的最优 I/O 复杂度通常记为：[3]
 
 $$
 \operatorname{Sort}(x)
@@ -675,7 +706,7 @@ $$
 `DecreaseKey` 的困难并不只是因为已有数据结构设计得还不够巧妙。
 
 在本文发表之前，Eenberg、Larsen 和 Yu 已经研究了支持
-`DecreaseKey` 的外存优先队列下界。
+`DecreaseKey` 的外存优先队列下界。[7]
 
 目标论文在 Previous Work 中引用了这一结果：对于一个支持
 `DecreaseKey` 的外存优先队列，在一系列操作中，至少有一种操作的
@@ -734,7 +765,7 @@ $$
 M=\Omega(B\log^2 N)
 $$
 
-的条件下，这种复杂度分配仍然遵守已有的 `DecreaseKey` 下界。
+的条件下，这种复杂度分配仍然遵守已有的 `DecreaseKey` 下界。[1][7]
 
 因此，本文的设计思路不是“绕过”理论下界，而是：
 
@@ -765,7 +796,7 @@ $$
 
 外存优先队列的一个重要目标，是充分利用一次 I/O 可以传输整个数据块的特点，通过缓冲和批处理降低单个操作平均承担的 I/O 成本。
 
-Fadel、Jakobsen、Katajainen 和 Teuhola 在 1999 年的工作 *Heaps and Heapsort on Secondary Storage* 中研究了面向二级存储的堆结构。其基本思想之一是使用多路树和较大的节点，并充分利用主存中的缓冲空间，从而减少外存页面传输。该工作能够高效支持类似 `Insert` 和删除极值元素的操作，并由此得到 I/O 高效的外部 heapsort。
+Fadel、Jakobsen、Katajainen 和 Teuhola 在 1999 年的工作 *Heaps and Heapsort on Secondary Storage* 中研究了面向二级存储的堆结构。其基本思想之一是使用多路树和较大的节点，并充分利用主存中的缓冲空间，从而减少外存页面传输。该工作能够高效支持类似 `Insert` 和删除极值元素的操作，并由此得到 I/O 高效的外部 heapsort。[4]
 
 对于只需要维护插入、删除和提取最小值的外存优先队列，后来可以达到
 
@@ -777,11 +808,11 @@ O\left(
 \right)
 $$
 
-的摊还 I/O 复杂度。
+的摊还 I/O 复杂度。[1][4]
 
 这一复杂度与外存排序中每个元素平均承担的 I/O 成本处于相同量级。因此，从传统外存优先队列的角度看，如果不要求支持 `DecreaseKey`，问题已经可以做到非常高效。目标论文也把 Fadel 等人的工作作为“不支持 `DecreaseKey` 时可以达到最优 I/O 复杂度”的代表结果。
 
-Wei 和 Yi 在 2014 年进一步研究了外存模型中优先队列与排序之间的关系。他们证明，在一定温和条件下，外存优先队列与外存排序在计算复杂度上具有等价关系。这进一步说明，排序复杂度是理解不含 `DecreaseKey` 的外存优先队列性能时一个非常自然的基准。
+Wei 和 Yi 在 2014 年进一步研究了外存模型中优先队列与排序之间的关系。他们证明，在一定温和条件下，外存优先队列与外存排序在计算复杂度上具有等价关系。这进一步说明，排序复杂度是理解不含 `DecreaseKey` 的外存优先队列性能时一个非常自然的基准。[6]
 
 但是，这一类高效结构通常依赖于一个重要条件：
 
@@ -793,7 +824,7 @@ Wei 和 Yi 在 2014 年进一步研究了外存模型中优先队列与排序之
 
 ## 5.2 早期支持 `DecreaseKey` 的外存优先队列
 
-Kumar 和 Schwabe 在 1996 年研究了用于外存图算法的数据结构，并设计了能够支持相关图算法操作的 I/O 高效数据结构。
+Kumar 和 Schwabe 在 1996 年研究了用于外存图算法的数据结构，并设计了能够支持相关图算法操作的 I/O 高效数据结构。[5]
 
 目标论文将 Kumar–Schwabe 的结构作为早期支持完整优先队列操作、包括 `DecreaseKey` 的代表结果。其各项操作可以达到
 
@@ -805,7 +836,7 @@ O\left(
 \right)
 $$
 
-的摊还 I/O 复杂度。
+的摊还 I/O 复杂度。[5]
 
 这一结果的重要性在于，它证明了外存环境中确实可以设计支持 `DecreaseKey` 的优先队列，并可将这些数据结构用于最短路径、BFS 等图问题。
 
@@ -839,7 +870,7 @@ $$
 
 > 支持 `DecreaseKey` 后的性能下降，究竟只是因为已有数据结构设计得还不够好，还是这个操作本身就必然带来额外成本？
 
-Eenberg、Larsen 和 Yu 在 2017 年的 *DecreaseKeys are Expensive for External Memory Priority Queues* 中回答了这个问题。
+Eenberg、Larsen 和 Yu 在 2017 年的 *DecreaseKeys are Expensive for External Memory Priority Queues* 中回答了这个问题。[7]
 
 他们证明，对于混合执行 `Insert`、`ExtractMin` 和 `DecreaseKey` 的操作序列，外存优先队列存在总 I/O 下界
 
@@ -850,7 +881,7 @@ $$
 \right).
 $$
 
-这一结果在 cell-probe 模型中成立，因此并不仅限于比较型数据结构。
+这一结果在 cell-probe 模型中成立，因此并不仅限于比较型数据结构。[7]
 
 这一结果的重要意义在于：
 
@@ -872,7 +903,7 @@ $$
 
 ## 5.4 2019 年的另一条路线：Jiang–Larsen 的随机化优先队列
 
-在目标论文发表的同一年，Jiang 和 Larsen 的 *A Faster External Memory Priority Queue with DecreaseKeys* 也对这一问题取得了重要进展。
+在目标论文发表的同一年，Jiang 和 Larsen 的 *A Faster External Memory Priority Queue with DecreaseKeys* 也对这一问题取得了重要进展。[8]
 
 他们的目标是缩小支持 `DecreaseKey` 时已有上界与理论下界之间的差距，并提出了一个随机化的外存优先队列。
 
@@ -889,7 +920,7 @@ O\left(
 \right).
 $$
 
-作者指出，这是多年以后首次改进支持 `DecreaseKey` 的外存优先队列上界，并同时带来了更快的外存单源最短路径算法。
+作者指出，这是多年以后首次改进支持 `DecreaseKey` 的外存优先队列上界，并同时带来了更快的外存单源最短路径算法。[8]
 
 Jiang–Larsen 与本文的思路并不完全相同。
 
@@ -916,7 +947,7 @@ Jiang–Larsen 试图改善支持 `DecreaseKey` 的优先队列整体性能，�
 
 ### 5.5.1 External-Memory Priority Queues with Optimal Insertions
 
-2025 年，Brodal、Goodrich、Iacono 等人在 *External-Memory Priority Queues with Optimal Insertions* 中研究了另一个方向：
+2025 年，Brodal、Goodrich、Iacono 等人在 *External-Memory Priority Queues with Optimal Insertions* 中研究了另一个方向：[11]
 
 > 如果只要求支持 `Insert` 和 `DeleteMin`，能否让插入操作比传统排序型优先队列更快？
 
@@ -936,22 +967,20 @@ O\left(
 \right)
 $$
 
-I/O 的 `DeleteMin`。
+I/O 的 `DeleteMin`。[11]
 
 该工作进一步推动了外存优先队列中“不同操作采用不同复杂度预算”的思想，但是它解决的操作集合与本文不同：它并不以 `DecreaseKey` 为核心，而是重点优化 `Insert`。
 
 因此，它不能被简单理解为“取代了本文”。
 
-本文关心的是：
+本文关心的是统一的 `Update` 接口：
 
-$$
-\text{Update}
-= \text{Insert}+\text{DecreaseKey}
-$$
+* 如果 key 当前不存在，`Update` 相当于执行 `Insert`；
+* 如果 key 已经存在，并且新的 priority 更小，则 `Update` 执行相应的 `DecreaseKey`。
 
-的高效支持；
+因此，`Update` **统一包含了 `Insert` 和 `DecreaseKey` 两种情况**，而不是二者在一次操作中的简单相加。[1]
 
-而 2025 年这一工作关注的是更基础的 `Insert`/`DeleteMin` 接口。
+相比之下，2025 年这一工作关注的是更基础的 `Insert`/`DeleteMin` 接口，并不支持本文讨论的 `DecreaseKey`。
 
 两者共同反映出一个值得注意的发展趋势：
 
@@ -961,11 +990,9 @@ $$
 
 ### 5.5.2 Lazy B-Trees
 
-2025 年的 *Lazy B-Trees* 从另一种数据结构方向讨论了外存中的延迟更新和查询问题。
+2025 年，Rysgaard 和 Wild 在 *Lazy B-Trees* 中研究了另一种 external-memory lazy data structure。[12]
 
-该工作把 lazy search tree 的思想推广到外存，并指出 lazy B-tree 可以作为一种外存优先队列使用。
-
-在其给出的优先队列推论中，`DecreaseKey` 和 `Insert` 可以达到
+该工作的目标是把 lazy search tree 的自适应 update/query tradeoff 推广到外存模型。其 MFCS 2025 会议版本还讨论了把 Lazy B-Tree 作为 external-memory priority queue 使用，并声称在这一应用下 `DecreaseKey` 和 `Insert` 可以达到
 
 $$
 O\left(
@@ -973,17 +1000,27 @@ O\left(
 \right)
 $$
 
-的最坏情况 I/O 复杂度。
+的 worst-case I/O complexity。
 
-作者同时明确指出，这种结构在面向排序复杂度的传统外存堆指标上并不具有竞争力，但在非常大的 $N$ 下，它可以提供比此前一些外存优先队列更快的 `DecreaseKey` 和 `Insert`，代价是删除最小值相关操作变慢。
+如果这一结果成立，它与本文会表现出一个有趣的共同点：
 
-这一结果与本文之间有一个有趣的共同点：
+> 两者都不要求 priority-queue operations 具有对称的复杂度，而是允许不同操作承担明显不同的 I/O 成本。
 
-> 两者都接受不同操作具有明显不对称的性能。
+不过，这一结果现在需要谨慎解释。
 
-但是它们的结构、分析目标和具体复杂度完全不同。
+论文发表后，作者公开了 erratum，指出原分析没有计入维护 blocked linked list 中 pointers 所需要的 I/O 成本。[13]
 
-因此，Lazy B-Trees 更适合作为“本文之后出现的另一种不对称外存数据结构设计思路”，而不是直接作为 x-treap 的后继版本。
+因此，会议版本中把 Lazy B-Trees 用作支持 `DecreaseKey` 的 external-memory priority queue 时所声称的优势，目前不能作为已经确立的复杂度结果。作者特别指出，在需要维护所有 element pointers 的最坏情况下，直接实现的 `DeleteMin` 成本会上升到
+
+$$
+O(\log N)
+$$
+
+I/Os。[13]
+
+所以，Lazy B-Trees 仍然可以作为本文之后探索 **lazy updates 和 asymmetric update/query tradeoff** 的相关研究，但不适合把会议版本中的 `DecreaseKey` bound 直接作为已经证明优于本文的后续结果。
+
+这一修正也说明，external-memory priority queue 中涉及 `DecreaseKey`、延迟更新和 pointer maintenance 的分析仍然十分微妙。
 
 ---
 
@@ -1045,7 +1082,7 @@ $$
 
 > **让包含 `DecreaseKey` 的 `Update` 达到 I/O-optimal，同时让较少发生的 `ExtractMin` 和 `Delete` 承担更多成本。**
 
-目标论文将其描述为第一个在 cache-aware 设置下，以最优 I/O 复杂度支持 `Update`，从而支持 `DecreaseKey`，同时仍保持 I/O-optimal `Insert` 的结构。
+目标论文将其描述为第一个在 cache-aware 设置下，以最优 I/O 复杂度支持 `Update`，从而支持 `DecreaseKey`，同时仍保持 I/O-optimal `Insert` 的结构。[1]
 
 这是本文最重要的理论贡献之一。
 
@@ -1196,7 +1233,7 @@ $$
 量级，因此不能继续简单使用“每层扩大两倍”的结构。
 
 作者的解决办法是引入一种**递归增长结构**：x-treap。它借鉴了此前 x-box 和外存哈希结构中的递归布局，把许多简单层级压缩进一个递归结构中。
-（Full Version §1.3）
+[2]
 
 ---
 
@@ -1583,7 +1620,7 @@ $$
 \alpha\in(0,1],
 $$
 
-一个 x-treap 的总容量小于：
+一个 x-treap 的总容量小于：[2]
 
 $$
 2(D.x)^{1+\alpha}.
@@ -1824,7 +1861,7 @@ x-treap 的正确性主要由五个结构不变量保证。
 
 这些 invariant 在每次**接口操作完成后**必须成立。
 
-在 `Resolve`、`Flush-Up`、`Flush-Down` 等辅助操作执行过程中，它们可以暂时被破坏，但操作结束时必须恢复。
+在 `Resolve`、`Flush-Up`、`Flush-Down` 等辅助操作执行过程中，它们可以暂时被破坏，但操作结束时必须恢复。[2]
 
 ---
 
@@ -2106,7 +2143,7 @@ x-treap 对外主要需要支持批量插入和批量提取最小元素。为了
 * `Flush-Up`：当上层 front 不足时，将较小 priority 的元素批量向上移动；
 * `Flush-Down`：当结构过满时，将较大 priority 的元素从 bottom 批量向下移出。
 
-这三个操作分别处理局部整理、向上补充和向下释放空间，是理解后续 `Batched-Insert` 和 `Batched-ExtractMin` 的基础。
+这三个操作分别处理局部整理、向上补充和向下释放空间，是理解后续 `Batched-Insert` 和 `Batched-ExtractMin` 的基础。[2]
 
 ---
 
@@ -2648,7 +2685,7 @@ x-treap 的正确性难点不在于普通的插入，而在于它允许同一个
 
 1. 多个物理版本不会改变同一个 key 的正确逻辑状态；
 2. x-treap 的结构 invariants 能保证最小 priority 元素最终出现在 top front；
-3. 已经被提取或删除的旧副本不会再次被完整优先队列返回。
+3. 已经被提取或删除的旧副本不会再次被完整优先队列返回。[2]
 
 ---
 
@@ -2862,7 +2899,7 @@ hash table 过滤 ghost
 
 一次 `Flush-Up`、`Flush-Down` 或 `Split` 本身可能需要扫描大量数据，但这些操作只有在 buffer 已经积累了足够多元素时才发生。因此，一次批量操作的成本可以由大量元素共同承担。
 
-论文进一步使用势能函数处理元素可能多次上下移动的问题。
+论文进一步使用势能函数处理元素可能多次上下移动的问题。[2]
 
 ---
 
@@ -2958,7 +2995,7 @@ $$
 
 新的更新首先进入 rear，并主要通过：
 
-```text id="1miiuh"
+```text
 merge
 ↓
 Resolve
@@ -3008,7 +3045,7 @@ $$
 
 $$
 \varepsilon
-===========
+=
 
 \frac{\alpha}{1+\alpha},
 $$
@@ -3023,7 +3060,7 @@ $$
 
 因此可以直观地比较为：
 
-```text id="vwlm8c"
+```text
 向下的 Batched-Insert：
 每层约 O(1/B)
 
@@ -3049,7 +3086,7 @@ $$
 
 如果某个 $D_i$ 达到容量上限，就：
 
-```text id="46kin3"
+```text
 Flush-Down(D_i)
         ↓
 得到一个大 batch
@@ -3135,11 +3172,11 @@ O\left(
 \right)
 $$
 
-amortized I/Os。
+amortized I/Os。[1][2]
 
 因此，复杂度分析最终验证了前文一直强调的设计目标：
 
-```text id="e5j2bn"
+```text
 Update
   ↓
 主要依靠 batching 和向下传播
@@ -3207,11 +3244,11 @@ BRT:
 
 ## 12.2 从传统 BRT 到 x-box
 
-BRT 最早由 Buchsbaum 等人在 external-memory graph traversal 工作中提出。
+BRT 最早由 Buchsbaum 等人在 external-memory graph traversal 工作中提出。[10]
 
 传统 BRT 可以理解成带 buffer 的搜索树：插入元素不会立即逐个沿搜索路径下降，而是在 buffer 中积累后批量传播。
 
-本文进一步使用 Brodal 等人提出的 **x-box** 改进 BRT。
+本文进一步使用 Brodal 等人提出的 **x-box** 改进 BRT。[2][9]
 
 这里需要注意：
 
@@ -3328,13 +3365,13 @@ O\left(
 \right)
 $$
 
-amortized I/Os。
+amortized I/Os。[2]
 
 令：
 
 $$
 \varepsilon
-===========
+=
 
 \frac{\alpha}{1+\alpha},
 $$
@@ -3357,7 +3394,7 @@ $$
 O(N/B)
 $$
 
-blocks。
+blocks。[2]
 
 ---
 
@@ -3379,7 +3416,7 @@ O\left(
 \right)
 $$
 
-的 Extract。
+的 Extract。[10]
 
 本文最重要的改进是把这种 base-2 logarithm 替换为由 $\lambda$ 控制的外存友好层级：
 
@@ -3459,7 +3496,7 @@ priority queue 负责维护 tentative distance，而 BRT 用于按 vertex key �
 | BRT | `Insert` | $E$ |
 | BRT | `Extract` | $V$ |
 
-这一操作分布正好适合本文提出的非对称数据结构。
+这一操作分布正好适合本文提出的非对称数据结构。[1][2]
 
 ---
 
@@ -3565,7 +3602,7 @@ $$
 
 这条式子直接体现了本文设计 priority queue 时采用非对称 tradeoff 的原因：
 
-```text id="zn7ka6"
+```text
 E 次 Update / Insert
         ↓
 设计得非常便宜
@@ -3609,7 +3646,7 @@ $$
 
 的 sufficiently dense graphs。
 
-论文证明可以选择合适参数，使与 $V$ 次昂贵查询有关的项被 $E$ 次便宜更新产生的项吸收。
+论文证明可以选择合适参数，使与 $V$ 次昂贵查询有关的项被 $E$ 次便宜更新产生的项吸收。[1][2]
 
 最终得到：
 
@@ -3638,7 +3675,7 @@ $$
 
 真正的变化是：
 
-```text id="v14v2z"
+```text
 已有 external-memory SSSP
           ↓
 替换数据结构
@@ -3676,7 +3713,7 @@ $$
 
 本文还将新的 priority queue 和 BRT 应用于 directed DFS 和 BFS。
 
-算法框架来自 Buchsbaum 等人的 external-memory graph traversal algorithm。本文并没有重新设计 DFS/BFS 的遍历规则，而是使用新的数据结构降低已有框架中的 I/O 成本。
+算法框架来自 Buchsbaum 等人的 external-memory graph traversal algorithm。本文并没有重新设计 DFS/BFS 的遍历规则，而是使用新的数据结构降低已有框架中的 I/O 成本。[1][2]
 
 ---
 
@@ -3706,7 +3743,7 @@ $$
 (x,v)
 $$
 
-以 source vertex $x$ 为 key 插入 BRT。
+以 source vertex $x$ 为 key 插入 BRT。[10]
 
 之后再次处理 vertex $u$ 时，执行：
 
@@ -3732,7 +3769,7 @@ DFS 随后从剩余 outgoing edges 中选择下一条尚未探索的边；BFS �
 
 ### 13.2.2 本文使用的操作计数
 
-本文第 5.2 节直接采用 Buchsbaum 等人的 traversal framework。
+本文第 5.2 节直接采用 Buchsbaum 等人的 traversal framework。[10]
 
 在本文的复杂度分析中，priority queue 和 BRT 都保存 $O(E)$ 规模的数据，并产生：
 
@@ -3742,6 +3779,8 @@ DFS 随后从剩余 outgoing edges 中选择下一条尚未探索的边；BFS �
 | Priority Queue | `ExtractMin` | $2V$ |
 | BRT | `Insert` | $E$ |
 | BRT | `Extract` | $2V$ |
+
+目标论文据此使用上表中的 aggregate operation counts 进行复杂度分析。[1][2]
 
 因此与 SSSP 类似，DFS/BFS 同样具有：
 
@@ -3810,7 +3849,7 @@ $$
 \lambda=O(E/V)
 $$
 
-后，得到：
+后，得到以下 cache-oblivious bound：[2]
 
 $$
 O\left(
@@ -3878,7 +3917,7 @@ O\left(
 \frac EB
 \log_{M/B}\frac EB
 \right)
-=======
+=
 
 O(\operatorname{Sort}(E))
 $$
@@ -3932,7 +3971,7 @@ $$
 
 本文形成了一条比较完整的设计链：
 
-```text id="ig6b00"
+```text
 DecreaseKey 存在额外代价
         ↓
 选择 asymmetric tradeoff
@@ -4001,17 +4040,17 @@ blocks，而不是理想的 $O(N/B)$ linear space。
 
 ## 14.3 与其他 DecreaseKey priority queues 的关系
 
-2017 年的 lower-bound result 表明，支持 `DecreaseKey` 时出现性能退化并不是已有结构设计不够好这么简单，而是问题本身存在理论限制。
+2017 年的 lower-bound result 表明，支持 `DecreaseKey` 时出现性能退化并不是已有结构设计不够好这么简单，而是问题本身存在理论限制。[7]
 
 因此本文并没有“打破”这个 lower bound，而是选择重新分配不同操作之间的成本。
 
-同期 Jiang 和 Larsen 的工作采取了另一种路线：他们给出 randomized structure，使包含 `DecreaseKey` 在内的 priority-queue operations 获得较均衡的 expected amortized 改进。
+同期 Jiang 和 Larsen 的工作采取了另一种路线：他们给出 randomized structure，使包含 `DecreaseKey` 在内的 priority-queue operations 获得较均衡的 expected amortized 改进。[8]
 
 相比之下，本文更加极端地优先优化 `Update`。
 
 因此两类结果适合不同 workload：
 
-```text id="qoj2h1"
+```text
 operation mix 较均衡
         ↓
 balanced improvement 更自然
@@ -4039,7 +4078,7 @@ $$
 
 amortized I/Os，同时保持高效 DeleteMin。
 
-但该结果不支持 `DecreaseKey`，因此并不能直接替代本文针对 `DecreaseKey` 的结果。
+但该结果不支持 `DecreaseKey`，因此并不能直接替代本文针对 `DecreaseKey` 的结果。[11]
 
 类似地，后续工作还探索了更加 adaptive 的 external-memory update/query tradeoff。这说明如何在不同操作之间分配 I/O 成本仍然是这一领域的重要问题，而不是存在一个结构可以简单支配所有其他方案。
 
@@ -4179,6 +4218,8 @@ $$
 O(\operatorname{Sort}(E)).
 $$
 
+这一结果是本文 graph applications 的最终 cache-aware bound。[1][2]
+
 从这个角度看，我认为本文最重要的思想不是某一个单独的递归结构，而是一种更一般的数据结构设计方法：
 
 > **数据结构不一定需要让所有操作同时达到最优。
@@ -4195,3 +4236,33 @@ $$
 > **在支持 `DecreaseKey` 的理论限制下，仍然可以通过重新分配不同操作之间的成本，获得一个与特定应用 workload 高度匹配的更优 tradeoff。**
 
 对于本文研究的 massive directed dense graphs，这种 tradeoff 最终确实转化为了整个图算法的渐近 I/O 改进。
+
+---
+
+# References
+
+[1] J. Iacono, R. Jacob, and K. Tsakalidis. “External Memory Priority Queues with Decrease-Key and Applications to Graph Algorithms.” *27th Annual European Symposium on Algorithms (ESA 2019)*, LIPIcs 144, Article 60, pp. 60:1–60:14, 2019. doi: 10.4230/LIPIcs.ESA.2019.60.
+
+[2] J. Iacono, R. Jacob, and K. Tsakalidis. “Cache-Oblivious Priority Queues with Decrease-Key and Applications to Graph Algorithms.” Full version of [1], arXiv:1903.03147, 2019.
+
+[3] A. Aggarwal and J. S. Vitter. “The Input/Output Complexity of Sorting and Related Problems.” *Communications of the ACM*, 31(9):1116–1127, 1988. doi: 10.1145/48529.48535.
+
+[4] R. Fadel, K. V. Jakobsen, J. Katajainen, and J. Teuhola. “Heaps and Heapsort on Secondary Storage.” *Theoretical Computer Science*, 220(2):345–362, 1999. doi: 10.1016/S0304-3975(99)00006-7.
+
+[5] V. Kumar and E. J. Schwabe. “Improved Algorithms and Data Structures for Solving Graph Problems in External Memory.” *Proceedings of the 8th IEEE Symposium on Parallel and Distributed Processing (SPDP 1996)*, pp. 169–176, 1996. doi: 10.1109/SPDP.1996.570330.
+
+[6] Z. Wei and K. Yi. “Equivalence between Priority Queues and Sorting in External Memory.” *Algorithms – ESA 2014*, Lecture Notes in Computer Science 8737, pp. 830–841, 2014. doi: 10.1007/978-3-662-44777-2_68.
+
+[7] K. Eenberg, K. G. Larsen, and H. Yu. “DecreaseKeys are Expensive for External Memory Priority Queues.” *Proceedings of the 49th Annual ACM SIGACT Symposium on Theory of Computing (STOC 2017)*, pp. 1081–1093, 2017. doi: 10.1145/3055399.3055437.
+
+[8] S. Jiang and K. G. Larsen. “A Faster External Memory Priority Queue with DecreaseKeys.” *Proceedings of the 30th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2019)*, pp. 1331–1343, 2019. doi: 10.1137/1.9781611975482.81.
+
+[9] G. S. Brodal, E. D. Demaine, J. T. Fineman, J. Iacono, S. Langerman, and J. I. Munro. “Cache-Oblivious Dynamic Dictionaries with Update/Query Tradeoffs.” *Proceedings of the 21st Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2010)*, pp. 1448–1456, 2010. doi: 10.1137/1.9781611973075.117.
+
+[10] A. L. Buchsbaum, M. Goldwasser, S. Venkatasubramanian, and J. R. Westbrook. “On External Memory Graph Traversal.” *Proceedings of the 11th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2000)*, 2000. doi: 10.1145/338219.338650.
+
+[11] G. S. Brodal, M. T. Goodrich, J. Iacono, J. Lo, U. Meyer, V. Pagan, N. Sitchinava, and R. Svenning. “External-Memory Priority Queues with Optimal Insertions.” *33rd Annual European Symposium on Algorithms (ESA 2025)*, LIPIcs 351, Article 5, pp. 5:1–5:14, 2025. doi: 10.4230/LIPIcs.ESA.2025.5.
+
+[12] C. M. Rysgaard and S. Wild. “Lazy B-Trees.” *50th International Symposium on Mathematical Foundations of Computer Science (MFCS 2025)*, LIPIcs 345, Article 87, pp. 87:1–87:19, 2025. doi: 10.4230/LIPIcs.MFCS.2025.87.
+
+[13] C. M. Rysgaard and S. Wild. “Lazy B-Trees — Erratum.” Author-maintained publication page for [12], Erratum section, accessed July 2026.
