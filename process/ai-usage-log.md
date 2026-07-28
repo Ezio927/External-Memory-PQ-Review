@@ -487,3 +487,44 @@ The assistance included:
 * helping organize the final evaluation around workload-aware data-structure design.
 
 The main conclusion retained in the review is that the target paper should be evaluated as an asymmetric structure designed for update-heavy workloads, rather than as a uniform replacement for all external-memory priority queues.
+
+---
+
+## 2026-07-27–2026-07-28 — Final Audit and Source Verification
+
+### Questions Discussed
+
+AI was mainly used for final-stage checking rather than extending the technical analysis.
+
+The main questions discussed were:
+
+* whether the existing review already covered the required technical and evaluation components;
+* whether the cache-oblivious / cache-aware terminology was being used consistently;
+* whether later related-work claims, especially *Lazy B-Trees*, were still valid as originally written;
+* where explicit citations were needed to make technical and historical claims traceable to their sources.
+
+### AI Assistance
+
+AI was used to:
+
+* review the complete `review.md` and identify remaining consistency or citation gaps;
+* compare several statements with the target paper and full version;
+* check later related work and locate the published *Lazy B-Trees* erratum;
+* help organize the final References section and citation placement;
+* help reorganize the final conclusion so that it summarized the existing analysis without introducing a new technical argument.
+
+### Verification and Corrections
+
+The final checking process led to several concrete revisions.
+
+The cache-oblivious / cache-aware description was corrected after comparing the review with the full version's $\lambda$-parameterized formulation.
+
+The *Lazy B-Trees* discussion was qualified after checking the authors' erratum rather than relying only on the original conference claim.
+
+Citation attribution was also clarified for the graph applications, especially the distinction between the earlier traversal framework and the operation counts used by the target paper.
+
+### Result
+
+At this stage, AI was used mainly as an interactive verification and editing aid.
+
+The technical content itself was not expanded into a new section. The focus was instead on checking whether existing claims were supported, correcting several statements where necessary, and making the final review easier to verify from its cited sources.
