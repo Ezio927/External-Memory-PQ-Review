@@ -4062,3 +4062,136 @@ x-treap、BRT 和 dense graph applications 最终都服务于这一核心思想�
 这使本文的贡献不仅是一个新的数据结构，也提供了一个比较有启发性的 data-structure design principle：
 
 > **优化一个数据结构时，不一定需要让所有操作同时变快；更重要的是让 operation tradeoff 与目标应用的 workload 相匹配。**
+
+---
+
+# 15. Conclusion
+
+本文研究的是 external-memory priority queue 中一个长期存在的困难：如何在支持 `DecreaseKey` 的同时降低 I/O complexity。
+
+对于不支持 `DecreaseKey` 的 external-memory priority queue，经典结果已经能够利用 buffering 和 batching 达到接近 external sorting 的效率。但 `DecreaseKey` 会使问题明显复杂，因为一次更新需要处理某个已有 key 的旧状态，而直接寻找并修改这个旧元素通常意味着昂贵的随机 I/O。
+
+本文没有试图让所有 priority-queue operations 都具有相同的低复杂度，而是采用了一个 asymmetric tradeoff：
+
+> **优先把大量发生的 `Update` 做到非常便宜，并允许 `ExtractMin` 和 `Delete` 承担更高的整理成本。**
+
+为了实现这一点，论文构造了 x-treap。
+
+x-treap 同时利用：
+
+* 按 key 排序的 buffers；
+* front/rear 的 priority 分层；
+* recursive subtreaps；
+* delayed duplicate elimination；
+* `Resolve`、`Flush-Up` 和 `Flush-Down` 等批处理操作。
+
+其中最核心的思想是：
+
+> 不要求每次 `DecreaseKey` 都立即找到并修改旧元素。
+
+同一个 key 的多个 physical copies 可以暂时存在，逻辑状态由 minimum-priority representative 决定。旧版本以后通过 `Resolve` 或 ghost filtering 被处理。
+
+这种设计把大量细粒度随机修改转换成：
+
+$$
+\text{scan}
++
+\text{merge}
++
+\text{batched movement}.
+$$
+
+势能分析进一步证明，即使元素可能在递归结构中多次移动，这些额外操作的成本仍然可以被之前积累的 potential 支付。
+
+在 cache-aware 模型中，论文最终得到：
+
+$$
+O\left(
+\frac1B
+\log_{M/B}\frac NB
+\right)
+$$
+
+amortized I/Os 的 `Update`。
+
+这达到 external-memory sorting 中每个元素平均承担的 I/O 成本量级。
+
+对应地，`ExtractMin` 和 `Delete` 的复杂度更高：
+
+$$
+O\left(
+\left\lceil
+\frac{M^\varepsilon}{B}
+\log_{M/B}\frac NB
+\right\rceil
+\log_{M/B}\frac NB
+\right).
+$$
+
+因此，本文并没有消除支持 `DecreaseKey` 的代价，而是重新安排了这个代价出现的位置。
+
+论文随后改进了 Buffered Repository Tree。
+
+这里使用的是 x-box 而不是 x-treap，但仍遵循相似的设计思想：
+
+> 可以延迟的 Insert 使用 batching 做得很便宜，而真正需要得到答案的 `Extract(key)` 承担搜索成本。
+
+priority queue 和 BRT 的改进最终被放回已有 external-memory graph algorithms 中。
+
+在这些算法中存在一个非常重要的 operation asymmetry：
+
+$$
+O(E)
+$$
+
+次 edge-related updates/inserts，
+
+但只有：
+
+$$
+O(V)
+$$
+
+次 vertex-related extractions。
+
+因此，对于：
+
+$$
+E\gg V
+$$
+
+的 dense graphs，本文的数据结构 tradeoff 与应用 workload 恰好匹配。
+
+在论文给出的 sufficiently dense graph 条件下，cache-aware SSSP、DFS 和 BFS 最终达到：
+
+$$
+O\left(
+\frac EB
+\log_{M/B}\frac EB
+\right)
+$$
+
+I/Os，
+
+也就是：
+
+$$
+O(\operatorname{Sort}(E)).
+$$
+
+从这个角度看，我认为本文最重要的思想不是某一个单独的递归结构，而是一种更一般的数据结构设计方法：
+
+> **数据结构不一定需要让所有操作同时达到最优。
+> 如果目标应用中的 operation frequencies 极不均衡，那么主动构造 asymmetric tradeoff，优化真正高频的操作，可能比追求均衡的 per-operation complexity 更有效。**
+
+当然，这种设计也具有明显限制。
+
+它最适合 update-heavy workloads，对 sparse graphs 或 extraction-heavy workloads 并不一定占优；priority queue 还需要额外 logarithmic space，并且复杂度主要是 amortized guarantee。x-treap 本身也具有较高的实现复杂度。
+
+因此，本文并不是一个在所有条件下统一优于已有 external-memory priority queues 的结果。
+
+更准确地说，它证明了：
+
+> **在支持 `DecreaseKey` 的理论限制下，仍然可以通过重新分配不同操作之间的成本，获得一个与特定应用 workload 高度匹配的更优 tradeoff。**
+
+对于本文研究的 massive directed dense graphs，这种 tradeoff 最终确实转化为了整个图算法的渐近 I/O 改进。
