@@ -540,7 +540,7 @@ Its main effect is to allow update information to propagate downward in batches.
 
 The operations now form a coherent data flow:
 
-```text id="xk5fue"
+```text
 Update
   ↓
 Batched-Insert
@@ -940,7 +940,7 @@ The informal expression
 
 $$
 \text{Update}
-=============
+=
 
 \text{Insert}+\text{DecreaseKey}
 $$

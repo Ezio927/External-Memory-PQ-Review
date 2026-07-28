@@ -4259,10 +4259,11 @@ $$
 
 [9] G. S. Brodal, E. D. Demaine, J. T. Fineman, J. Iacono, S. Langerman, and J. I. Munro. “Cache-Oblivious Dynamic Dictionaries with Update/Query Tradeoffs.” *Proceedings of the 21st Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2010)*, pp. 1448–1456, 2010. doi: 10.1137/1.9781611973075.117.
 
-[10] A. L. Buchsbaum, M. Goldwasser, S. Venkatasubramanian, and J. R. Westbrook. “On External Memory Graph Traversal.” *Proceedings of the 11th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2000)*, 2000. doi: 10.1145/338219.338650.
+[10] A. L. Buchsbaum, M. H. Goldwasser, S. Venkatasubramanian, and J. R. Westbrook. “On External Memory Graph Traversal.” *Proceedings of the 11th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2000)*, pp. 859–860, 2000. doi: 10.1145/338219.338650.
+
 
 [11] G. S. Brodal, M. T. Goodrich, J. Iacono, J. Lo, U. Meyer, V. Pagan, N. Sitchinava, and R. Svenning. “External-Memory Priority Queues with Optimal Insertions.” *33rd Annual European Symposium on Algorithms (ESA 2025)*, LIPIcs 351, Article 5, pp. 5:1–5:14, 2025. doi: 10.4230/LIPIcs.ESA.2025.5.
 
 [12] C. M. Rysgaard and S. Wild. “Lazy B-Trees.” *50th International Symposium on Mathematical Foundations of Computer Science (MFCS 2025)*, LIPIcs 345, Article 87, pp. 87:1–87:19, 2025. doi: 10.4230/LIPIcs.MFCS.2025.87.
 
-[13] C. M. Rysgaard and S. Wild. “Lazy B-Trees — Erratum.” Author-maintained publication page for [12], Erratum section, accessed July 2026.
+[13] C. M. Rysgaard and S. Wild. “Lazy B-Trees — Erratum.” Erratum section on the authors’ publication page for [12], accessed July 2026. Available at: <https://www.wild-inter.net/publications/rysgaard-wild-2025>.
