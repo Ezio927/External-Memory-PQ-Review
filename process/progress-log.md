@@ -851,3 +851,135 @@ The next work should focus on:
 * checking consistency of notation and terminology;
 * improving the conclusion and overall narrative;
 * preparing the review for final submission and possible oral questioning.
+
+---
+
+## 2026-07-27–2026-07-28 — Final Review, Verification, and Revision
+
+### Goal
+
+The main technical analysis had already been completed, including:
+
+* x-treap structure and operations;
+* correctness;
+* amortized I/O complexity;
+* Buffered Repository Tree;
+* SSSP, DFS, and BFS applications;
+* critical evaluation.
+
+The `review/x-treap-structure` branch was therefore merged, and the project moved to the final revision stage on:
+
+```text
+review/final-analysis-and-revision
+```
+
+The goal of this stage was not to introduce another major technical section, but to check whether the existing review formed a complete and internally consistent final draft.
+
+### Final Conclusion
+
+Added Section 15 to summarize the complete argument of the review:
+
+```text
+DecreaseKey difficulty
+        ↓
+asymmetric operation tradeoff
+        ↓
+x-treap + BRT
+        ↓
+cheap frequent modifications
+        ↓
+more expensive queries
+        ↓
+dense graph applications
+```
+
+The final interpretation is that the paper does not attempt to make every priority-queue operation simultaneously optimal. Instead, it designs an operation tradeoff that matches applications with many more updates than extractions.
+
+### Completeness Check
+
+The full `review.md` was checked against the course requirements.
+
+The review now contains:
+
+* problem definition and motivation;
+* external-memory background;
+* previous and later related work;
+* main technical contribution;
+* x-treap structure and implementation details;
+* correctness argument;
+* amortized I/O analysis;
+* BRT construction;
+* SSSP / DFS / BFS applications;
+* critical evaluation;
+* final conclusion.
+
+At this point, adding another major technical section was judged unnecessary.
+
+### Technical Corrections
+
+Several statements were revised during the final check.
+
+#### Cache-oblivious and cache-aware settings
+
+The earlier description treated the main structure too directly as cache-aware.
+
+This was corrected by distinguishing:
+
+* the parameterized structure using $\lambda$;
+* the cache-aware specialization obtained by choosing
+
+$$
+\lambda=O(M).
+$$
+
+This also makes the later complexity derivations consistent with the notation used in the full version.
+
+#### `Update` semantics
+
+The informal expression
+
+$$
+\text{Update}
+=============
+
+\text{Insert}+\text{DecreaseKey}
+$$
+
+was removed.
+
+The review now states the interface more accurately:
+
+* if the key is absent, `Update` acts as an insertion;
+* if the key is already represented, the operation corresponds to the `DecreaseKey` case.
+
+#### Later related work
+
+The discussion of *Lazy B-Trees* was updated after checking the authors' later erratum.
+
+The conference-version priority-queue claim is therefore no longer presented as an established direct improvement over the target paper.
+
+### References and Citations
+
+A complete References section was added.
+
+Citations were inserted for:
+
+* the target ESA paper and its full version;
+* the external-memory sorting model;
+* earlier priority queues;
+* the `DecreaseKey` lower bound;
+* Jiang–Larsen;
+* the original x-box work;
+* the original BRT / graph traversal work;
+* later external-memory priority-queue results.
+
+The citation pass also clarified an important distinction in the graph-algorithm section:
+
+* the DFS/BFS traversal framework comes from the earlier Buchsbaum et al. work;
+* the aggregate operation counts used in the final complexity calculation are those stated by the target paper.
+
+### Current Status
+
+After this revision, the review has moved from a technically complete draft to a source-backed final draft with checked terminology, explicit references, and corrected related-work claims.
+
+The remaining work is limited to updating the process records, merging the final revision branch, and performing a final submission check.
